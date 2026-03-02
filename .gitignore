@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+*.egg
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# Runtime / temp
+/tmp/vibemouse*
+
+# User config (stored in ~/.config/vibemouse/, not tracked here)
+config.json
