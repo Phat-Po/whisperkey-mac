@@ -1,4 +1,4 @@
-# VibeMouse 🎙️
+# WhisperKey 🎙️
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
@@ -42,8 +42,8 @@
 ### 方式一：克隆并安装（推荐）
 
 ```bash
-git clone https://github.com/Phat-Po/vibemouse-mac.git
-cd vibemouse-mac
+git clone https://github.com/Phat-Po/whisperkey-mac.git
+cd whisperkey-mac
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -54,7 +54,7 @@ pip install -e .
 ### 方式二：直接从 GitHub 安装
 
 ```bash
-pip install git+https://github.com/Phat-Po/vibemouse-mac.git
+pip install git+https://github.com/Phat-Po/whisperkey-mac.git
 ```
 
 > **注意**：首次转录时会自动从 HuggingFace 下载所选的 Whisper 模型（需要网络）。后续完全离线运行。
@@ -66,7 +66,7 @@ pip install git+https://github.com/Phat-Po/vibemouse-mac.git
 ### 首次运行
 
 ```bash
-vibemouse
+whisperkey
 ```
 
 首次运行会自动启动安装向导，引导你完成：
@@ -79,7 +79,7 @@ vibemouse
 
 ### 之后每次使用
 
-VibeMouse 在后台运行，不需要打开任何窗口。
+WhisperKey 在后台运行，不需要打开任何窗口。
 
 | 操作 | 快捷键 |
 |---|---|
@@ -99,7 +99,7 @@ VibeMouse 在后台运行，不需要打开任何窗口。
 右 Option ⌥  + 右 Command ⌘  →  免提模式开/关
 ```
 
-可通过 `vibemouse setup` 自定义快捷键。
+可通过 `whisperkey setup` 自定义快捷键。
 
 ---
 
@@ -108,12 +108,12 @@ VibeMouse 在后台运行，不需要打开任何窗口。
 ### 重新配置
 
 ```bash
-vibemouse setup
+whisperkey setup
 ```
 
 ### 配置文件
 
-配置保存在 `~/.config/vibemouse/config.json`，可手动编辑：
+配置保存在 `~/.config/whisperkey/config.json`，可手动编辑：
 
 ```json
 {
@@ -137,7 +137,7 @@ vibemouse setup
 
 ## 🔒 系统权限
 
-VibeMouse 需要两个 macOS 系统权限：
+WhisperKey 需要两个 macOS 系统权限：
 
 ### 1. 输入监控
 用于监听快捷键。
@@ -160,34 +160,34 @@ Python.app 的路径通常为：
 
 ## 🚀 开机自启
 
-将 VibeMouse 设置为开机自启（macOS LaunchAgent）：
+将 WhisperKey 设置为开机自启（macOS LaunchAgent）：
 
 ```bash
 # 1. 在本地安装（不依赖外置磁盘）
-mkdir -p ~/Library/Application\ Support/vibemouse
-python3 -m venv ~/Library/Application\ Support/vibemouse/venv
-~/Library/Application\ Support/vibemouse/venv/bin/pip install git+https://github.com/Phat-Po/vibemouse-mac.git
+mkdir -p ~/Library/Application\ Support/whisperkey
+python3 -m venv ~/Library/Application\ Support/whisperkey/venv
+~/Library/Application\ Support/whisperkey/venv/bin/pip install git+https://github.com/Phat-Po/whisperkey-mac.git
 
 # 2. 创建 LaunchAgent
-cat > ~/Library/LaunchAgents/com.vibemouse.plist << 'EOF'
+cat > ~/Library/LaunchAgents/com.whisperkey.plist << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.vibemouse</string>
+    <string>com.whisperkey</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/YOUR_USERNAME/Library/Application Support/vibemouse/venv/bin/vibemouse</string>
+        <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey/venv/bin/whisperkey</string>
     </array>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/vibemouse.log</string>
+    <string>/tmp/whisperkey.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/vibemouse.log</string>
+    <string>/tmp/whisperkey.log</string>
 </dict>
 </plist>
 EOF
@@ -195,7 +195,7 @@ EOF
 # 将 YOUR_USERNAME 替换为你的用户名
 
 # 3. 注册服务
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vibemouse.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
 
 ---
@@ -203,7 +203,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vibemouse.plist
 ## 🛠️ 故障排查
 
 ```bash
-vibemouse help
+whisperkey help
 ```
 
 自动检查以下项目：
@@ -219,25 +219,25 @@ vibemouse help
 
 **按快捷键没有任何反应**
 → 检查输入监控权限
-→ 运行 `vibemouse help` 查看详情
+→ 运行 `whisperkey help` 查看详情
 
 **转录结果没有粘贴**
 → 检查辅助功能权限
 
 **服务未启动**
 ```bash
-launchctl list | grep vibemouse
-cat /tmp/vibemouse.log
+launchctl list | grep whisperkey
+cat /tmp/whisperkey.log
 ```
 
 **查看实时日志**
 ```bash
-tail -f /tmp/vibemouse.log
+tail -f /tmp/whisperkey.log
 ```
 
 **重启服务**
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.vibemouse
+launchctl kickstart -k gui/$(id -u)/com.whisperkey
 ```
 
 ---
@@ -245,20 +245,20 @@ launchctl kickstart -k gui/$(id -u)/com.vibemouse
 ## 🛠️ 开发
 
 ```bash
-git clone https://github.com/Phat-Po/vibemouse-mac.git
-cd vibemouse-mac
+git clone https://github.com/Phat-Po/whisperkey-mac.git
+cd whisperkey-mac
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-vibemouse        # 直接运行
-vibemouse setup  # 重新配置
-vibemouse help   # 故障排查
+whisperkey        # 直接运行
+whisperkey setup  # 重新配置
+whisperkey help   # 故障排查
 ```
 
 项目结构：
 
 ```
-vibemouse_mac/
+whisperkey_mac/
 ├── main.py               # 入口，CLI 路由
 ├── config.py             # 配置读写（JSON + 环境变量）
 ├── i18n.py               # 中英文字符串字典

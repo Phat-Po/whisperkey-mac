@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 
-CONFIG_PATH = Path.home() / ".config" / "vibemouse" / "config.json"
+CONFIG_PATH = Path.home() / ".config" / "whisperkey" / "config.json"
 
 
 @dataclass
@@ -31,7 +31,7 @@ class AppConfig:
     sample_rate: int = 16000
     min_duration_s: float = 0.3
     temp_dir: Path = field(
-        default_factory=lambda: Path(tempfile.gettempdir()) / "vibemouse_mac"
+        default_factory=lambda: Path(tempfile.gettempdir()) / "whisperkey_mac"
     )
 
     # ── Hotkeys ───────────────────────────────────────────────────────────────
@@ -78,22 +78,22 @@ def load_config() -> AppConfig:
         except Exception:
             pass
 
-    # 2. Env var overrides (backwards compatibility)
-    if v := os.getenv("VIBEMOUSE_MODEL"):
+    # 2. Env var overrides
+    if v := os.getenv("WHISPERKEY_MODEL"):
         cfg.model_size = v
-    if v := os.getenv("VIBEMOUSE_COMPUTE_TYPE"):
+    if v := os.getenv("WHISPERKEY_COMPUTE_TYPE"):
         cfg.compute_type = v
-    if v := os.getenv("VIBEMOUSE_DEVICE"):
+    if v := os.getenv("WHISPERKEY_DEVICE"):
         cfg.device = v
-    if v := os.getenv("VIBEMOUSE_LANGUAGE"):
+    if v := os.getenv("WHISPERKEY_LANGUAGE"):
         cfg.language = v or None
-    if v := os.getenv("VIBEMOUSE_SAMPLE_RATE"):
+    if v := os.getenv("WHISPERKEY_SAMPLE_RATE"):
         cfg.sample_rate = int(v)
-    if v := os.getenv("VIBEMOUSE_TEMP_DIR"):
-        cfg.temp_dir = Path(v) / "vibemouse_mac"
-    if v := os.getenv("VIBEMOUSE_MIN_DURATION"):
+    if v := os.getenv("WHISPERKEY_TEMP_DIR"):
+        cfg.temp_dir = Path(v) / "whisperkey_mac"
+    if v := os.getenv("WHISPERKEY_MIN_DURATION"):
         cfg.min_duration_s = float(v)
-    if v := os.getenv("VIBEMOUSE_AUTO_PASTE"):
+    if v := os.getenv("WHISPERKEY_AUTO_PASTE"):
         cfg.auto_paste = v == "1"
 
     # Sync transcribe_language → Whisper language param (if not set by env var)

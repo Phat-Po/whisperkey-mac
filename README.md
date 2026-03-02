@@ -1,4 +1,4 @@
-# VibeMouse 🎙️
+# WhisperKey 🎙️
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
@@ -42,8 +42,8 @@
 ### Option A: Clone and install (recommended)
 
 ```bash
-git clone https://github.com/Phat-Po/vibemouse-mac.git
-cd vibemouse-mac
+git clone https://github.com/Phat-Po/whisperkey-mac.git
+cd whisperkey-mac
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -54,7 +54,7 @@ pip install -e .
 ### Option B: Install directly from GitHub
 
 ```bash
-pip install git+https://github.com/Phat-Po/vibemouse-mac.git
+pip install git+https://github.com/Phat-Po/whisperkey-mac.git
 ```
 
 > **Note**: The selected Whisper model is auto-downloaded from HuggingFace on first transcription (internet required). All subsequent runs are fully offline.
@@ -66,7 +66,7 @@ pip install git+https://github.com/Phat-Po/vibemouse-mac.git
 ### First Run
 
 ```bash
-vibemouse
+whisperkey
 ```
 
 The first run automatically launches an interactive setup wizard, guiding you through:
@@ -79,7 +79,7 @@ The first run automatically launches an interactive setup wizard, guiding you th
 
 ### Subsequent Use
 
-VibeMouse runs in the background — no window needed.
+WhisperKey runs in the background — no window needed.
 
 | Action | Hotkey |
 |---|---|
@@ -99,7 +99,7 @@ Right Option ⌥  (release)   →  Stop + transcribe + paste
 Right Option ⌥ + Right ⌘    →  Toggle hands-free mode
 ```
 
-Run `vibemouse setup` to customize hotkeys.
+Run `whisperkey setup` to customize hotkeys.
 
 ---
 
@@ -108,12 +108,12 @@ Run `vibemouse setup` to customize hotkeys.
 ### Reconfigure
 
 ```bash
-vibemouse setup
+whisperkey setup
 ```
 
 ### Config file
 
-Config is saved at `~/.config/vibemouse/config.json`, editable manually:
+Config is saved at `~/.config/whisperkey/config.json`, editable manually:
 
 ```json
 {
@@ -137,7 +137,7 @@ Config is saved at `~/.config/vibemouse/config.json`, editable manually:
 
 ## 🔒 System Permissions
 
-VibeMouse requires two macOS system permissions:
+WhisperKey requires two macOS system permissions:
 
 ### 1. Input Monitoring
 Required to detect your hotkeys.
@@ -160,34 +160,34 @@ Python.app is typically located at:
 
 ## 🚀 Auto-start on Login
 
-Set up VibeMouse to run automatically on login via macOS LaunchAgent:
+Set up WhisperKey to run automatically on login via macOS LaunchAgent:
 
 ```bash
 # 1. Install locally (not on an external drive)
-mkdir -p ~/Library/Application\ Support/vibemouse
-python3 -m venv ~/Library/Application\ Support/vibemouse/venv
-~/Library/Application\ Support/vibemouse/venv/bin/pip install git+https://github.com/Phat-Po/vibemouse-mac.git
+mkdir -p ~/Library/Application\ Support/whisperkey
+python3 -m venv ~/Library/Application\ Support/whisperkey/venv
+~/Library/Application\ Support/whisperkey/venv/bin/pip install git+https://github.com/Phat-Po/whisperkey-mac.git
 
 # 2. Create LaunchAgent
-cat > ~/Library/LaunchAgents/com.vibemouse.plist << 'EOF'
+cat > ~/Library/LaunchAgents/com.whisperkey.plist << 'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.vibemouse</string>
+    <string>com.whisperkey</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/YOUR_USERNAME/Library/Application Support/vibemouse/venv/bin/vibemouse</string>
+        <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey/venv/bin/whisperkey</string>
     </array>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/vibemouse.log</string>
+    <string>/tmp/whisperkey.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/vibemouse.log</string>
+    <string>/tmp/whisperkey.log</string>
 </dict>
 </plist>
 EOF
@@ -195,7 +195,7 @@ EOF
 # Replace YOUR_USERNAME with your actual username
 
 # 3. Register the service
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vibemouse.plist
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
 
 ---
@@ -203,7 +203,7 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.vibemouse.plist
 ## 🛠️ Troubleshooting
 
 ```bash
-vibemouse help
+whisperkey help
 ```
 
 Automatically checks:
@@ -219,25 +219,25 @@ Automatically checks:
 
 **No response to hotkeys**
 → Check Input Monitoring permission
-→ Run `vibemouse help` for details
+→ Run `whisperkey help` for details
 
 **Transcription not pasting**
 → Check Accessibility permission
 
 **Service not running**
 ```bash
-launchctl list | grep vibemouse
-cat /tmp/vibemouse.log
+launchctl list | grep whisperkey
+cat /tmp/whisperkey.log
 ```
 
 **View live logs**
 ```bash
-tail -f /tmp/vibemouse.log
+tail -f /tmp/whisperkey.log
 ```
 
 **Restart service**
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.vibemouse
+launchctl kickstart -k gui/$(id -u)/com.whisperkey
 ```
 
 ---
@@ -245,20 +245,20 @@ launchctl kickstart -k gui/$(id -u)/com.vibemouse
 ## 🛠️ Development
 
 ```bash
-git clone https://github.com/Phat-Po/vibemouse-mac.git
-cd vibemouse-mac
+git clone https://github.com/Phat-Po/whisperkey-mac.git
+cd whisperkey-mac
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-vibemouse        # run
-vibemouse setup  # reconfigure
-vibemouse help   # troubleshoot
+whisperkey        # run
+whisperkey setup  # reconfigure
+whisperkey help   # troubleshoot
 ```
 
 Project structure:
 
 ```
-vibemouse_mac/
+whisperkey_mac/
 ├── main.py               # Entry point, CLI routing
 ├── config.py             # Config loading/saving (JSON + env vars)
 ├── i18n.py               # zh/en string dictionary

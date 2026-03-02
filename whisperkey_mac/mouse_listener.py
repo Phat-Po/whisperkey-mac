@@ -13,7 +13,7 @@ def _resolve_button(spec: str) -> Button | int:
 
     On macOS, pynput only defines left/middle/right. Side buttons come through
     as Button.unknown but carry an integer button number we can compare against.
-    Use `vibemouse detect` to find your mouse's button numbers.
+    Use `whisperkey detect` to find your mouse's button numbers.
     """
     spec = spec.strip().lower()
 
@@ -38,7 +38,7 @@ def _resolve_button(spec: str) -> Button | int:
     raise ValueError(
         f"Unknown button spec {spec!r}. "
         "Use: left, right, middle, x1, x2, or a number (3, 4, 5...). "
-        "Run `vibemouse detect` to find your mouse's button numbers."
+        "Run `whisperkey detect` to find your mouse's button numbers."
     )
 
 

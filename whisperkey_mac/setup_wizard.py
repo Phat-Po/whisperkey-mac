@@ -6,9 +6,9 @@ import threading
 import time
 from pathlib import Path
 
-from vibemouse_mac.config import AppConfig, save_config
-from vibemouse_mac.i18n import t, WHISPER_LANGUAGES
-from vibemouse_mac.keyboard_listener import pynput_key_to_name
+from whisperkey_mac.config import AppConfig, save_config
+from whisperkey_mac.i18n import t, WHISPER_LANGUAGES
+from whisperkey_mac.keyboard_listener import pynput_key_to_name
 
 try:
     from rich.console import Console
@@ -87,7 +87,7 @@ def _python_app_path() -> str:
 def _step_language() -> str:
     """Step 1: Choose UI language. Returns 'zh' or 'en'."""
     print(f"\n{'═'*50}")
-    print(f"  VibeMouse — Setup")
+    print(f"  WhisperKey — Setup")
     print(f"{'═'*50}")
     print()
     print("  [1] 中文")

@@ -6,7 +6,7 @@ from pathlib import Path
 import opencc
 from faster_whisper import WhisperModel
 
-from vibemouse_mac.config import AppConfig
+from whisperkey_mac.config import AppConfig
 
 # Traditional Chinese → Simplified Chinese converter
 _t2s = opencc.OpenCC("t2s")
@@ -45,7 +45,7 @@ class Transcriber:
             if self._model is not None:
                 return
             print(
-                f"[vibemouse] Loading Whisper model '{self._config.model_size}' "
+                f"[whisperkey] Loading Whisper model '{self._config.model_size}' "
                 f"on {self._config.device} ({self._config.compute_type}) ..."
             )
             self._model = WhisperModel(
@@ -53,4 +53,4 @@ class Transcriber:
                 device=self._config.device,
                 compute_type=self._config.compute_type,
             )
-            print("[vibemouse] Model ready.")
+            print("[whisperkey] Model ready.")

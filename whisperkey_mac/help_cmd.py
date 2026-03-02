@@ -4,8 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from vibemouse_mac.config import load_config, CONFIG_PATH
-from vibemouse_mac.i18n import t
+from whisperkey_mac.config import load_config, CONFIG_PATH
+from whisperkey_mac.i18n import t
 
 try:
     from rich.console import Console
@@ -16,10 +16,10 @@ except ImportError:
 
 
 def _check_process() -> tuple[bool, str]:
-    """Check if vibemouse is running in background."""
+    """Check if whisperkey is running in background."""
     try:
         result = subprocess.run(
-            ["pgrep", "-f", "vibemouse_mac.main"],
+            ["pgrep", "-f", "whisperkey_mac.main"],
             capture_output=True, text=True
         )
         pids = result.stdout.strip().split()
@@ -182,7 +182,7 @@ def run_help() -> None:
     has_perm_issue = not rows[1][1] or not rows[2][1]
 
     if has_perm_issue:
-        from vibemouse_mac.setup_wizard import _python_app_path
+        from whisperkey_mac.setup_wizard import _python_app_path
         python_path = _python_app_path()
         print(f"  ⚠  {t('perm_add_python', lang)}")
         print(f"     {python_path}")

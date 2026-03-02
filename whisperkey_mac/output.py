@@ -6,7 +6,7 @@ import time
 import pyperclip
 from pynput.keyboard import Controller, Key
 
-from vibemouse_mac.config import AppConfig
+from whisperkey_mac.config import AppConfig
 
 
 class TextOutput:

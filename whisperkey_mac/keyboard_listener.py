@@ -121,7 +121,7 @@ class HotkeyListener:
                         self._hold_timer.cancel()
                         self._hold_timer = None
                     self._mode = "handsfree"
-                print("[vibemouse] Hands-free ON — recording...")
+                print("[whisperkey] Hands-free ON — recording...")
                 self._on_record_start()
             elif mode == "handsfree":
                 with self._lock:
@@ -170,5 +170,5 @@ class HotkeyListener:
                 return
             self._mode = "hold_recording"
             self._hold_timer = None
-        print("[vibemouse] Recording...")
+        print("[whisperkey] Recording...")
         self._on_record_start()

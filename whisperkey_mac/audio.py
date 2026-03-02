@@ -9,7 +9,7 @@ import numpy as np
 import sounddevice as sd
 import soundfile as sf
 
-from vibemouse_mac.config import AppConfig
+from whisperkey_mac.config import AppConfig
 
 
 @dataclass

@@ -3,7 +3,7 @@ from __future__ import annotations
 STRINGS: dict[str, dict[str, str]] = {
     "zh": {
         # ── Setup wizard ──────────────────────────────────────────────────────
-        "welcome": "欢迎使用 VibeMouse 🎙️",
+        "welcome": "欢迎使用 WhisperKey 🎙️",
         "welcome_sub": "语音输入工具 — 按住按键说话，松开即转文字",
         "setup_step": "步骤",
         "setup_of": "共",
@@ -43,7 +43,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "hotkey_confirm": "使用这个键？",
 
         "step_perm_title": "开启系统权限",
-        "step_perm_desc": "VibeMouse 需要以下两个权限才能正常工作：",
+        "step_perm_desc": "WhisperKey 需要以下两个权限才能正常工作：",
         "perm_input": "输入监控  — 用于监听你的按键（录音触发）",
         "perm_access": "辅助功能  — 用于将文字粘贴到当前应用",
         "perm_open_prompt": "是否现在打开系统设置？",
@@ -53,15 +53,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "perm_access_path": "系统设置 → 隐私与安全性 → 辅助功能",
         "perm_add_python": "将 Python.app 添加到列表并打开开关",
         "perm_python_path_label": "Python.app 路径（通常为）：",
-        "perm_restart_note": "授权后，运行 vibemouse 即可开始使用。",
+        "perm_restart_note": "授权后，运行 whisperkey 即可开始使用。",
 
         "setup_done": "✅ 设置完成！",
-        "setup_done_sub": "配置已保存到 ~/.config/vibemouse/config.json",
-        "setup_starting": "正在启动 VibeMouse...",
+        "setup_done_sub": "配置已保存到 ~/.config/whisperkey/config.json",
+        "setup_starting": "正在启动 WhisperKey...",
 
         # ── Runtime ───────────────────────────────────────────────────────────
-        "starting": "VibeMouse 启动中 — 预加载 Whisper 模型...",
-        "ready": "VibeMouse 已就绪",
+        "starting": "WhisperKey 启动中 — 预加载 Whisper 模型...",
+        "ready": "WhisperKey 已就绪",
         "model_label": "模型",
         "language_label": "语言",
         "auto_detect": "自动识别",
@@ -82,7 +82,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "shutting_down": "正在关闭...",
 
         # ── Help ──────────────────────────────────────────────────────────────
-        "help_title": "VibeMouse 故障诊断",
+        "help_title": "WhisperKey 故障诊断",
         "help_checking": "检查中...",
         "help_process": "后台进程",
         "help_process_running": "运行中（PID {pid}）",
@@ -97,8 +97,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "help_missing": "缺失",
         "help_found": "已找到",
         "help_fix_perm": "修复方法：系统设置 → 隐私与安全性 → {perm}，添加 Python.app",
-        "help_fix_model": "修复方法：运行 vibemouse setup 重新选择并下载模型",
-        "help_fix_process": "修复方法：运行 vibemouse 启动程序",
+        "help_fix_model": "修复方法：运行 whisperkey setup 重新选择并下载模型",
+        "help_fix_process": "修复方法：运行 whisperkey 启动程序",
         "help_audio_devices": "可用音频输入设备",
 
         # ── General ───────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ STRINGS: dict[str, dict[str, str]] = {
 
     "en": {
         # ── Setup wizard ──────────────────────────────────────────────────────
-        "welcome": "Welcome to VibeMouse 🎙️",
+        "welcome": "Welcome to WhisperKey 🎙️",
         "welcome_sub": "Voice input tool — hold a key to speak, release to transcribe",
         "setup_step": "Step",
         "setup_of": "of",
@@ -154,7 +154,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "hotkey_confirm": "Use this key?",
 
         "step_perm_title": "Enable System Permissions",
-        "step_perm_desc": "VibeMouse needs two permissions to work:",
+        "step_perm_desc": "WhisperKey needs two permissions to work:",
         "perm_input": "Input Monitoring  — to detect your key presses (recording trigger)",
         "perm_access": "Accessibility     — to paste text into the active app",
         "perm_open_prompt": "Open System Settings now?",
@@ -164,15 +164,15 @@ STRINGS: dict[str, dict[str, str]] = {
         "perm_access_path": "System Settings → Privacy & Security → Accessibility",
         "perm_add_python": "Add Python.app to the list and enable the toggle",
         "perm_python_path_label": "Python.app path (usually):",
-        "perm_restart_note": "After granting permissions, run vibemouse to start.",
+        "perm_restart_note": "After granting permissions, run whisperkey to start.",
 
         "setup_done": "✅ Setup complete!",
-        "setup_done_sub": "Config saved to ~/.config/vibemouse/config.json",
-        "setup_starting": "Starting VibeMouse...",
+        "setup_done_sub": "Config saved to ~/.config/whisperkey/config.json",
+        "setup_starting": "Starting WhisperKey...",
 
         # ── Runtime ───────────────────────────────────────────────────────────
-        "starting": "VibeMouse starting — pre-loading Whisper model...",
-        "ready": "VibeMouse ready",
+        "starting": "WhisperKey starting — pre-loading Whisper model...",
+        "ready": "WhisperKey ready",
         "model_label": "Model",
         "language_label": "Language",
         "auto_detect": "auto-detect",
@@ -193,7 +193,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "shutting_down": "Shutting down...",
 
         # ── Help ──────────────────────────────────────────────────────────────
-        "help_title": "VibeMouse Troubleshooter",
+        "help_title": "WhisperKey Troubleshooter",
         "help_checking": "Checking...",
         "help_process": "Background process",
         "help_process_running": "Running (PID {pid})",
@@ -208,8 +208,8 @@ STRINGS: dict[str, dict[str, str]] = {
         "help_missing": "Missing",
         "help_found": "Found",
         "help_fix_perm": "Fix: System Settings → Privacy & Security → {perm}, add Python.app",
-        "help_fix_model": "Fix: Run vibemouse setup to re-select and download model",
-        "help_fix_process": "Fix: Run vibemouse to start the app",
+        "help_fix_model": "Fix: Run whisperkey setup to re-select and download model",
+        "help_fix_process": "Fix: Run whisperkey to start the app",
         "help_audio_devices": "Available audio input devices",
 
         # ── General ───────────────────────────────────────────────────────────
