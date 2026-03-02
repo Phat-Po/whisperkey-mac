@@ -5,11 +5,35 @@
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-lightgrey?logo=apple)](https://www.apple.com/macos/)
 [![Powered by faster-whisper](https://img.shields.io/badge/STT-faster--whisper-orange)](https://github.com/SYSTRAN/faster-whisper)
 
-**Hold a key to speak, release to transcribe** — Local voice input for macOS
+<pre>
+█░░░█ █░░░█ ░███░ ░████ ████░ █████ ████░ █░░░█ █████ █░░░█
+█░░░█ █░░░█ ░░█░░ █░░░░ █░░░█ █░░░░ █░░░█ █░█░░ █░░░░ █░░░█
+█░█░█ █████ ░░█░░ ░███░ ████░ ████░ ████░ ███░░ ████░ ░███░
+█░█░█ █░░░█ ░░█░░ ░░░░█ █░░░░ █░░░░ █░█░░ █░█░░ █░░░░ ░░█░░
+░███░ █░░░█ ░███░ ████░ █░░░░ █████ █░░█░ █░░░█ █████ ░░█░░
+</pre>
 
-> Powered by [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — runs fully offline, no API costs, supports Chinese/English mixed input.
+**Hold a key to speak. Release to transcribe.**
+
+Local voice input for macOS — offline, free, no subscriptions.
 
 📖 [查看简体中文文档](README.zh.md)
+
+---
+
+## Why WhisperKey?
+
+Most macOS dictation tools are either online-only or expensive:
+
+| | WhisperKey | SuperWhisper | Wispr Flow | macOS Dictation |
+|---|:---:|:---:|:---:|:---:|
+| Free & open source | ✅ | ❌ ($250 lifetime) | ❌ ($15/mo) | ✅ |
+| Fully offline | ✅ | ✅ | ❌ | ❌ |
+| Chinese/English mixed | ✅ | ✅ | ✅ | ⚠️ |
+| Customizable hotkeys | ✅ | ✅ | ❌ | ❌ |
+| No app install needed | ✅ | ❌ | ❌ | — |
+
+WhisperKey runs entirely on your Mac using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). No cloud, no API keys, no recurring cost.
 
 ---
 
@@ -39,22 +63,17 @@
 
 ## 📦 Installation
 
-### Option A: Clone and install (recommended)
+```bash
+pip install git+https://github.com/Phat-Po/whisperkey-mac.git
+```
+
+Or clone and install for development:
 
 ```bash
 git clone https://github.com/Phat-Po/whisperkey-mac.git
 cd whisperkey-mac
-
-python3 -m venv .venv
-source .venv/bin/activate
-
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-```
-
-### Option B: Install directly from GitHub
-
-```bash
-pip install git+https://github.com/Phat-Po/whisperkey-mac.git
 ```
 
 > **Note**: The selected Whisper model is auto-downloaded from HuggingFace on first transcription (internet required). All subsequent runs are fully offline.
@@ -105,13 +124,10 @@ Run `whisperkey setup` to customize hotkeys.
 
 ## 🔧 Configuration
 
-### Reconfigure
-
 ```bash
-whisperkey setup
+whisperkey setup   # re-run setup wizard
+whisperkey help    # troubleshoot permissions, model, audio
 ```
-
-### Config file
 
 Config is saved at `~/.config/whisperkey/config.json`, editable manually:
 
@@ -139,28 +155,39 @@ Config is saved at `~/.config/whisperkey/config.json`, editable manually:
 
 WhisperKey requires two macOS system permissions:
 
-### 1. Input Monitoring
-Required to detect your hotkeys.
+**1. Input Monitoring** — to detect your hotkeys
+→ System Settings → Privacy & Security → Input Monitoring
 
-**System Settings → Privacy & Security → Input Monitoring**
+**2. Accessibility** — to paste transcribed text into the active app
+→ System Settings → Privacy & Security → Accessibility
 
-### 2. Accessibility
-Required to paste transcribed text into the active app.
-
-**System Settings → Privacy & Security → Accessibility**
-
-Add **Python.app** to both lists and enable the toggle.
-
-Python.app is typically located at:
+Add **Python.app** to both lists and enable the toggle. Python.app is typically at:
 ```
 /opt/homebrew/Cellar/python@3.xx/x.x.x/Frameworks/Python.framework/Versions/3.xx/Resources/Python.app
 ```
 
 ---
 
-## 🚀 Auto-start on Login
+## 🛠️ Troubleshooting
 
-Set up WhisperKey to run automatically on login via macOS LaunchAgent:
+```bash
+whisperkey help
+```
+
+Automatically checks: process status · Accessibility · Input Monitoring · audio devices · model files · config
+
+**No response to hotkeys** → check Input Monitoring permission
+**Transcription not pasting** → check Accessibility permission
+
+```bash
+tail -f /tmp/whisperkey.log                            # live logs
+launchctl kickstart -k gui/$(id -u)/com.whisperkey    # restart service
+```
+
+---
+
+<details>
+<summary>🚀 Auto-start on Login (LaunchAgent setup)</summary>
 
 ```bash
 # 1. Install locally (not on an external drive)
@@ -198,51 +225,10 @@ EOF
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
 
----
+</details>
 
-## 🛠️ Troubleshooting
-
-```bash
-whisperkey help
-```
-
-Automatically checks:
-
-- ✅ Background process status
-- ✅ Accessibility permission
-- ✅ Input Monitoring permission
-- ✅ Audio input devices
-- ✅ Whisper model files
-- ✅ Config file
-
-### Common Issues
-
-**No response to hotkeys**
-→ Check Input Monitoring permission
-→ Run `whisperkey help` for details
-
-**Transcription not pasting**
-→ Check Accessibility permission
-
-**Service not running**
-```bash
-launchctl list | grep whisperkey
-cat /tmp/whisperkey.log
-```
-
-**View live logs**
-```bash
-tail -f /tmp/whisperkey.log
-```
-
-**Restart service**
-```bash
-launchctl kickstart -k gui/$(id -u)/com.whisperkey
-```
-
----
-
-## 🛠️ Development
+<details>
+<summary>🛠️ Development</summary>
 
 ```bash
 git clone https://github.com/Phat-Po/whisperkey-mac.git
@@ -254,8 +240,6 @@ whisperkey        # run
 whisperkey setup  # reconfigure
 whisperkey help   # troubleshoot
 ```
-
-Project structure:
 
 ```
 whisperkey_mac/
@@ -269,6 +253,8 @@ whisperkey_mac/
 ├── setup_wizard.py       # Interactive terminal setup
 └── help_cmd.py           # Troubleshooter
 ```
+
+</details>
 
 ---
 

@@ -5,11 +5,35 @@
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS-lightgrey?logo=apple)](https://www.apple.com/macos/)
 [![Powered by faster-whisper](https://img.shields.io/badge/STT-faster--whisper-orange)](https://github.com/SYSTRAN/faster-whisper)
 
-**按住按键说话，松开即转文字** — 适用于 macOS 的本地语音输入工具
+<pre>
+█░░░█ █░░░█ ░███░ ░████ ████░ █████ ████░ █░░░█ █████ █░░░█
+█░░░█ █░░░█ ░░█░░ █░░░░ █░░░█ █░░░░ █░░░█ █░█░░ █░░░░ █░░░█
+█░█░█ █████ ░░█░░ ░███░ ████░ ████░ ████░ ███░░ ████░ ░███░
+█░█░█ █░░░█ ░░█░░ ░░░░█ █░░░░ █░░░░ █░█░░ █░█░░ █░░░░ ░░█░░
+░███░ █░░░█ ░███░ ████░ █░░░░ █████ █░░█░ █░░░█ █████ ░░█░░
+</pre>
 
-> 由 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 驱动，完全离线运行，无 API 费用，支持中英混合输入。
+**按住按键说话，松开即转文字。**
+
+适用于 macOS 的本地语音输入工具 — 离线运行，完全免费，无订阅费用。
 
 📖 [English Documentation](README.md)
+
+---
+
+## 为什么选择 WhisperKey？
+
+大多数 macOS 语音输入工具要么需要联网，要么价格不菲：
+
+| | WhisperKey | SuperWhisper | Wispr Flow | macOS 听写 |
+|---|:---:|:---:|:---:|:---:|
+| 免费开源 | ✅ | ❌（$250 买断）| ❌（$15/月）| ✅ |
+| 完全离线 | ✅ | ✅ | ❌ | ❌ |
+| 中英混合识别 | ✅ | ✅ | ✅ | ⚠️ |
+| 自定义快捷键 | ✅ | ✅ | ❌ | ❌ |
+| 无需安装 .app | ✅ | ❌ | ❌ | — |
+
+WhisperKey 基于 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在本机运行，无需云端、无 API 密钥、无任何持续费用。
 
 ---
 
@@ -37,24 +61,19 @@
 
 ---
 
-## 📦 安装方式
+## 📦 安装
 
-### 方式一：克隆并安装（推荐）
+```bash
+pip install git+https://github.com/Phat-Po/whisperkey-mac.git
+```
+
+或克隆仓库进行开发安装：
 
 ```bash
 git clone https://github.com/Phat-Po/whisperkey-mac.git
 cd whisperkey-mac
-
-python3 -m venv .venv
-source .venv/bin/activate
-
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-```
-
-### 方式二：直接从 GitHub 安装
-
-```bash
-pip install git+https://github.com/Phat-Po/whisperkey-mac.git
 ```
 
 > **注意**：首次转录时会自动从 HuggingFace 下载所选的 Whisper 模型（需要网络）。后续完全离线运行。
@@ -105,13 +124,10 @@ WhisperKey 在后台运行，不需要打开任何窗口。
 
 ## 🔧 配置
 
-### 重新配置
-
 ```bash
-whisperkey setup
+whisperkey setup   # 重新运行安装向导
+whisperkey help    # 检查权限、模型、音频
 ```
-
-### 配置文件
 
 配置保存在 `~/.config/whisperkey/config.json`，可手动编辑：
 
@@ -139,28 +155,39 @@ whisperkey setup
 
 WhisperKey 需要两个 macOS 系统权限：
 
-### 1. 输入监控
-用于监听快捷键。
+**1. 输入监控** — 用于监听快捷键
+→ 系统设置 → 隐私与安全性 → 输入监控
 
-**系统设置 → 隐私与安全性 → 输入监控**
+**2. 辅助功能** — 用于将文字粘贴到当前应用
+→ 系统设置 → 隐私与安全性 → 辅助功能
 
-### 2. 辅助功能
-用于将转录文字粘贴到当前应用。
-
-**系统设置 → 隐私与安全性 → 辅助功能**
-
-在两处均将 **Python.app** 添加到列表并开启开关。
-
-Python.app 的路径通常为：
+在两处均将 **Python.app** 添加到列表并开启开关。Python.app 的路径通常为：
 ```
 /opt/homebrew/Cellar/python@3.xx/x.x.x/Frameworks/Python.framework/Versions/3.xx/Resources/Python.app
 ```
 
 ---
 
-## 🚀 开机自启
+## 🛠️ 故障排查
 
-将 WhisperKey 设置为开机自启（macOS LaunchAgent）：
+```bash
+whisperkey help
+```
+
+自动检查：进程状态 · 辅助功能 · 输入监控 · 音频设备 · 模型文件 · 配置文件
+
+**按快捷键没有反应** → 检查输入监控权限
+**转录结果没有粘贴** → 检查辅助功能权限
+
+```bash
+tail -f /tmp/whisperkey.log                            # 实时日志
+launchctl kickstart -k gui/$(id -u)/com.whisperkey    # 重启服务
+```
+
+---
+
+<details>
+<summary>🚀 开机自启（LaunchAgent 设置）</summary>
 
 ```bash
 # 1. 在本地安装（不依赖外置磁盘）
@@ -198,51 +225,10 @@ EOF
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
 
----
+</details>
 
-## 🛠️ 故障排查
-
-```bash
-whisperkey help
-```
-
-自动检查以下项目：
-
-- ✅ 后台进程状态
-- ✅ 辅助功能权限
-- ✅ 输入监控权限
-- ✅ 音频输入设备
-- ✅ Whisper 模型文件
-- ✅ 配置文件
-
-### 常见问题
-
-**按快捷键没有任何反应**
-→ 检查输入监控权限
-→ 运行 `whisperkey help` 查看详情
-
-**转录结果没有粘贴**
-→ 检查辅助功能权限
-
-**服务未启动**
-```bash
-launchctl list | grep whisperkey
-cat /tmp/whisperkey.log
-```
-
-**查看实时日志**
-```bash
-tail -f /tmp/whisperkey.log
-```
-
-**重启服务**
-```bash
-launchctl kickstart -k gui/$(id -u)/com.whisperkey
-```
-
----
-
-## 🛠️ 开发
+<details>
+<summary>🛠️ 开发</summary>
 
 ```bash
 git clone https://github.com/Phat-Po/whisperkey-mac.git
@@ -254,8 +240,6 @@ whisperkey        # 直接运行
 whisperkey setup  # 重新配置
 whisperkey help   # 故障排查
 ```
-
-项目结构：
 
 ```
 whisperkey_mac/
@@ -269,6 +253,8 @@ whisperkey_mac/
 ├── setup_wizard.py       # 交互式终端安装向导
 └── help_cmd.py           # 故障排查工具
 ```
+
+</details>
 
 ---
 
