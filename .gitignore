@@ -12,7 +12,8 @@ build/
 .AppleDouble
 
 # Runtime / temp
+/tmp/whisperkey*
 /tmp/vibemouse*
 
-# User config (stored in ~/.config/vibemouse/, not tracked here)
+# User config (stored in ~/.config/whisperkey/, not tracked here)
 config.json

@@ -76,7 +76,11 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
+> **Tip for macOS**: if `python3 -V` is below 3.10, use a Homebrew Python explicitly instead of the system interpreter. For example: `python3.12 -m venv .venv` and `python3.12 -m pip install -e .`.
+
 > **Note**: The selected Whisper model is auto-downloaded from HuggingFace on first transcription (internet required). All subsequent runs are fully offline.
+
+> **Cache behavior**: reinstalling WhisperKey or rebuilding a local `venv` does **not** re-download an already cached model. Existing model files under `~/.cache/huggingface/hub` are reused unless you delete them manually.
 
 ---
 
@@ -205,12 +209,25 @@ cat > ~/Library/LaunchAgents/com.whisperkey.plist << 'EOF'
     <string>com.whisperkey</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey/venv/bin/whisperkey</string>
+        <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey/venv/bin/python</string>
+        <string>-m</string>
+        <string>whisperkey_mac.main</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>WHISPERKEY_MODEL</key>
+        <string>small</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>
     <true/>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey</string>
     <key>StandardOutPath</key>
     <string>/tmp/whisperkey.log</string>
     <key>StandardErrorPath</key>
@@ -224,6 +241,8 @@ EOF
 # 3. Register the service
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
+
+This LaunchAgent pattern is more resilient than calling the console script directly, and it continues to reuse any model already cached on disk.
 
 </details>
 

@@ -76,7 +76,11 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
+> **提示（macOS）**：如果 `python3 -V` 低于 3.10，请不要直接使用系统自带 Python，改用 Homebrew 安装的 Python。示例：`python3.12 -m venv .venv`，然后 `python3.12 -m pip install -e .`。
+
 > **注意**：首次转录时会自动从 HuggingFace 下载所选的 Whisper 模型（需要网络）。后续完全离线运行。
+
+> **缓存说明**：重新安装 WhisperKey 或重建本地 `venv` **不会**重复下载已经缓存的模型。只要你没有手动删除 `~/.cache/huggingface/hub` 里的模型文件，就会直接复用。
 
 ---
 
@@ -205,12 +209,25 @@ cat > ~/Library/LaunchAgents/com.whisperkey.plist << 'EOF'
     <string>com.whisperkey</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey/venv/bin/whisperkey</string>
+        <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey/venv/bin/python</string>
+        <string>-m</string>
+        <string>whisperkey_mac.main</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>WHISPERKEY_MODEL</key>
+        <string>small</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
     <key>KeepAlive</key>
     <true/>
     <key>RunAtLoad</key>
     <true/>
+    <key>LimitLoadToSessionType</key>
+    <string>Aqua</string>
+    <key>WorkingDirectory</key>
+    <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey</string>
     <key>StandardOutPath</key>
     <string>/tmp/whisperkey.log</string>
     <key>StandardErrorPath</key>
@@ -224,6 +241,8 @@ EOF
 # 3. 注册服务
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
+
+这种 LaunchAgent 写法比直接调用 console script 更稳，也会继续复用磁盘上已缓存的模型。
 
 </details>
 

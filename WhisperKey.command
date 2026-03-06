@@ -1,5 +1,6 @@
 #!/bin/bash
+set -euo pipefail
+
 cd "$(dirname "$0")"
 
-WHISPERKEY_MODEL="small" \
-.venv/bin/whisperkey
+exec ./start.sh "$@"
