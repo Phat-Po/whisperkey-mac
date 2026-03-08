@@ -89,6 +89,7 @@ def test_dispatch_to_main():
     sentinel = object()
     arg1 = "test_arg"
 
-    with unittest.mock.patch("PyObjCTools.AppHelper.callAfter") as mock_call_after:
+    # Patch the name as it lives in overlay.py after `from PyObjCTools.AppHelper import callAfter`
+    with unittest.mock.patch("whisperkey_mac.overlay.callAfter") as mock_call_after:
         dispatch_to_main(sentinel, arg1)
         mock_call_after.assert_called_once_with(sentinel, arg1)
