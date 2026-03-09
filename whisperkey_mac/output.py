@@ -55,6 +55,7 @@ class TextOutput:
             ["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'],
             check=True,
             timeout=2.0,
+            stderr=subprocess.DEVNULL,
         )
         time.sleep(0.05)  # give app time to paste
 

@@ -82,7 +82,12 @@ class App:
         self._overlay = OverlayPanel.create()
 
         # Block on Cocoa run loop. Returns only when terminate_() is called.
-        app.run()
+        # KeyboardInterrupt fallback: if MachSignals doesn't intercept Ctrl+C first,
+        # Python raises KeyboardInterrupt — catch it so cleanup always runs.
+        try:
+            app.run()
+        except KeyboardInterrupt:
+            _sig_name_holder.append("SIGINT")
 
         # Cleanup after run loop exits
         sig_name = _sig_name_holder[0] if _sig_name_holder else "SIGTERM"
