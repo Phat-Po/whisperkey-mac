@@ -13,7 +13,7 @@ This roadmap delivers a floating visual overlay to the existing WhisperKey dicta
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Threading Foundation** - Replace stop_event.wait() with NSApp run loop; invisible NSPanel correctly configured; all existing threads intact
-- [ ] **Phase 2: State Machine & Thread Wiring** - Connect worker threads to overlay states; branch logic (paste vs clipboard); auto-dismiss timer
+- [x] **Phase 2: State Machine & Thread Wiring** - Connect worker threads to overlay states; branch logic (paste vs clipboard); auto-dismiss timer (completed 2026-03-09)
 - [ ] **Phase 3: Visual Polish & Animation** - Waveform bars, pulsing dots, fade transitions, result text — all at specified timings
 - [ ] **Phase 4: Edge Cases & Hardening** - Rapid keypress guards, NSTimer leak prevention, LaunchAgent boot verification
 
@@ -86,6 +86,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Threading Foundation | 2/2 | Complete | 2026-03-09 |
-| 2. State Machine & Thread Wiring | 1/2 | In Progress|  |
+| 2. State Machine & Thread Wiring | 2/2 | Complete   | 2026-03-09 |
 | 3. Visual Polish & Animation | 0/2 | Not started | - |
 | 4. Edge Cases & Hardening | 0/1 | Not started | - |

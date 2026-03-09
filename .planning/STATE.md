@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: Completed 02-state-machine-thread-wiring-01-PLAN.md
-last_updated: "2026-03-09T09:10:30.044Z"
-last_activity: 2026-03-09 — Completed Phase 1 (plans 01-01 and 01-02)
+stopped_at: Completed 02-state-machine-thread-wiring-02-PLAN.md (checkpoint:human-verify Task 3 pending)
+last_updated: "2026-03-09T09:30:00.000Z"
+last_activity: 2026-03-09 — Completed Phase 2 Plan 02 auto-tasks; awaiting smoke test checkpoint
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 4
-  completed_plans: 3
-  percent: 25
+  completed_plans: 4
+  percent: 37
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 ## Current Position
 
 Phase: 2 of 4 (State Machine & Thread Wiring)
-Plan: 0 of TBD in current phase
-Status: In progress
-Last activity: 2026-03-09 — Completed Phase 1 (plans 01-01 and 01-02)
+Plan: 2 of 2 in current phase
+Status: Checkpoint — awaiting human smoke test verification (Task 3 of 02-02)
+Last activity: 2026-03-09 — Completed Phase 2 Plan 02 auto-tasks (Tasks 1 & 2); checkpoint:human-verify pending
 
-Progress: [██░░░░░░░░] 25%
+Progress: [████░░░░░░] 37%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [██░░░░░░░░] 25%
 
 *Updated after each plan completion*
 | Phase 02-state-machine-thread-wiring P01 | 10 | 3 tasks | 5 files |
+| Phase 02-state-machine-thread-wiring P02 | 15 min | 2 tasks | 1 file |
 
 ## Accumulated Context
 
@@ -74,6 +75,9 @@ Recent decisions affecting current work:
 - [Phase 02-state-machine-thread-wiring]: hide_after_paste() force-sets HIDDEN bypassing guard — paste path skips RESULT entirely; no TRANSCRIBING->HIDDEN in guard dict
 - [Phase 02-state-machine-thread-wiring]: String literal 'AXSearchField' in _TEXT_INPUT_ROLES — kAXSearchFieldRole does NOT exist as importable constant in PyObjC 12.1
 - [Phase 02-state-machine-thread-wiring]: callLater patched at whisperkey_mac.overlay.callLater (import site) in tests — consistent with Phase 1 callAfter pattern
+- [Phase 02-state-machine-thread-wiring P02]: Deferred imports (inside methods) for dispatch_to_main and is_cursor_in_text_field — matches existing pattern of confining AppKit-adjacent imports inside run()
+- [Phase 02-state-machine-thread-wiring P02]: Safety guard (hasattr '_overlay') applied to all three modified methods to protect against pre-initialization race
+- [Phase 02-state-machine-thread-wiring P02]: pyobjc-framework-ApplicationServices was already declared in pyproject.toml by Plan 02-01 — no change needed
 
 ### Pending Todos
 
@@ -85,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-09T09:10:30.041Z
-Stopped at: Completed 02-state-machine-thread-wiring-01-PLAN.md
+Last session: 2026-03-09T09:30:00.000Z
+Stopped at: Checkpoint:human-verify — Task 3 of 02-02-PLAN.md (smoke test, app must be running)
 Resume file: None
