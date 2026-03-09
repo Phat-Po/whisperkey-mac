@@ -160,9 +160,30 @@ class App:
                 print(f"[whisperkey] {t('no_speech', lang)}")
                 return
 
+            if not hasattr(self, '_overlay'):
+                # Fallback: behave as before Phase 2 (always inject)
+                self._output.inject(text)
+                return
+
+            from whisperkey_mac.ax_detect import is_cursor_in_text_field
+            from whisperkey_mac.overlay import dispatch_to_main
+
             print(f"[whisperkey] → {text!r}")
-            result = self._output.inject(text)
-            print(f"[whisperkey] {t('injected', lang)} {result}.")
+
+            in_text_field = is_cursor_in_text_field()
+
+            if in_text_field:
+                # RST-01: cursor in text input — paste silently and hide overlay fast
+                result = self._output.inject(text)  # inject() copies to clipboard AND pastes
+                print(f"[whisperkey] {t('injected', lang)} {result}.")
+                dispatch_to_main(self._overlay.hide_after_paste)
+            else:
+                # RST-02/03/04: cursor not in text input — copy to clipboard and show result
+                import pyperclip
+                pyperclip.copy(text)  # text goes to clipboard; no paste attempt
+                print(f"[whisperkey] {t('injected', lang)} clipboard.")
+                dispatch_to_main(self._overlay.show_result, text)
+                # overlay auto-dismisses after 3 seconds via callLater in show_result()
 
 
 def detect() -> None:
