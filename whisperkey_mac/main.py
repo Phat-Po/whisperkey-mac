@@ -113,9 +113,17 @@ class App:
     # ── internals ──────────────────────────────────────────────────────────────
 
     def _start_recording(self) -> None:
+        if not hasattr(self, '_overlay'):
+            return  # safety guard before overlay is initialized
+        from whisperkey_mac.overlay import dispatch_to_main
+        dispatch_to_main(self._overlay.show_recording)
         self._recorder.start()
 
     def _stop_and_transcribe(self) -> None:
+        if not hasattr(self, '_overlay'):
+            return  # safety guard before overlay is initialized
+        from whisperkey_mac.overlay import dispatch_to_main
+        dispatch_to_main(self._overlay.show_transcribing)
         recording = self._recorder.stop_and_save()
         cfg = self._config
         lang = cfg.ui_language
