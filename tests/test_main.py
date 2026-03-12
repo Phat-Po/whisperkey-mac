@@ -136,8 +136,28 @@ def test_should_attempt_direct_paste_allows_non_blocked_app_when_ax_detection_mi
     app = _build_app()
     app._frontmost_bundle_id = unittest.mock.MagicMock(return_value="com.openai.chat")
 
-    with unittest.mock.patch("whisperkey_mac.ax_detect.is_cursor_in_text_field", return_value=False):
+    with (
+        unittest.mock.patch("whisperkey_mac.ax_detect.is_cursor_in_text_field", return_value=False),
+        unittest.mock.patch("builtins.print") as mock_print,
+    ):
         assert app._should_attempt_direct_paste() is True
+
+    mock_print.assert_called_once_with(
+        "[whisperkey] AX text-field detection missed bundle=com.openai.chat; trying direct inject anyway."
+    )
+
+
+def test_should_attempt_direct_paste_allowlists_codex_without_noise():
+    app = _build_app()
+    app._frontmost_bundle_id = unittest.mock.MagicMock(return_value="com.openai.codex")
+
+    with (
+        unittest.mock.patch("whisperkey_mac.ax_detect.is_cursor_in_text_field", return_value=False),
+        unittest.mock.patch("builtins.print") as mock_print,
+    ):
+        assert app._should_attempt_direct_paste() is True
+
+    mock_print.assert_not_called()
 
 
 def test_main_setup_command_starts_after_setup():

@@ -11,6 +11,7 @@ from whisperkey_mac.output import TextOutput
 from whisperkey_mac.transcriber import Transcriber
 
 _AUTOPASTE_BLOCKED_BUNDLE_IDS = {"com.apple.finder"}
+_AUTOPASTE_ALLOWLIST_BUNDLE_IDS = {"com.openai.codex"}
 
 
 class App:
@@ -151,6 +152,9 @@ class App:
             return False
 
         if is_cursor_in_text_field():
+            return True
+
+        if bundle_id in _AUTOPASTE_ALLOWLIST_BUNDLE_IDS:
             return True
 
         # Some Electron/Web chat inputs don't expose AXEditable/role cleanly.

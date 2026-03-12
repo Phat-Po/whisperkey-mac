@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verification_pending
-stopped_at: Completed Plan 5 implementation; multiline HUD and optional OpenAI correction need manual verification with a real API key
-last_updated: "2026-03-12T13:25:00.000Z"
-last_activity: 2026-03-12 — Added multiline result HUD, optional OpenAI correction via Keychain/env, setup step, and test coverage
+stopped_at: Codex input compatibility validated; optional OpenAI correction still needs one manual verification with a real API key
+last_updated: "2026-03-13T02:20:00.000Z"
+last_activity: 2026-03-13 — Verified direct input in com.openai.codex, added permissions command, removed duplicate installs, and lowered AX detection log noise for known-compatible apps
 progress:
   total_phases: 4
   completed_phases: 4
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** 按住热键说话，松开就出现文字——零延迟感、零打断工作流。
-**Current focus:** Post-MVP Queue — Plan 5 manual verification (multiline result HUD + optional OpenAI correction)
+**Current focus:** Post-MVP Queue — Plan 5 manual verification (optional OpenAI correction) and compatibility cleanup for known chat inputs
 
 ## Current Position
 
 Phase: Post-MVP Queue
 Plan: 5 of 6 (Result Readability & Optional Online Correction)
-Status: Verification pending — code and tests complete; real OpenAI key path still needs manual check
-Last activity: 2026-03-12 — Added multiline HUD, setup/keychain wiring, OpenAI correction fallback logic, and regression tests
+Status: Verification pending — multiline HUD and Codex direct-input behavior are validated; real OpenAI key path still needs manual check
+Last activity: 2026-03-13 — Codex direct-input compatibility confirmed via targeted AppleScript fallback; permission helper and duplicate-install cleanup completed
 
 Progress: [█████████░] 90%
 
@@ -86,15 +86,15 @@ Recent decisions affecting current work:
 - [Plan 05]: Long result text should expand the HUD vertically rather than widening the panel; recording and transcribing states always reset to the base 74pt layout
 - [Plan 05]: Online correction is optional and uses the user's own OpenAI API key; no WhisperKey-hosted backend or OAuth flow is introduced
 - [Plan 05]: Key lookup order is `OPENAI_API_KEY` first, then macOS Keychain; any unavailable dependency, timeout, or API failure must fall back to the raw transcript
+- [Plan 05 follow-up]: Treat `com.openai.codex` as a known injectable app even when AX text-field detection misses; prefer targeted paste and suppress the warning log for that bundle
 - [Post-MVP Queue]: Streaming remains a separate research spike after the current optional online-correction path is manually verified
 
 ### Pending Todos
 
 - Run a manual Phase 5 smoke with a real OpenAI API key:
-  1. Long transcript grows the HUD to 2-3 lines and still auto-dismisses correctly
-  2. `whisperkey setup` can save an OpenAI key to Keychain
-  3. Online correction enabled + valid key uses corrected text in overlay and final paste
-  4. Missing/invalid key cleanly falls back to the raw transcript
+  1. `whisperkey setup` can save an OpenAI key to Keychain
+  2. Online correction enabled + valid key uses corrected text in overlay and final paste
+  3. Missing/invalid key cleanly falls back to the raw transcript
 - After Phase 5 manual verification passes, begin Plan 6 as the streaming ASR research spike
 
 ### Blockers/Concerns

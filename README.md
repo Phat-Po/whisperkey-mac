@@ -133,6 +133,7 @@ Run `whisperkey setup` to customize hotkeys.
 
 ```bash
 whisperkey setup   # re-run setup wizard
+whisperkey permissions  # open the right macOS permission panes + print Python.app path
 whisperkey help    # troubleshoot permissions, model, audio
 ```
 
@@ -197,6 +198,7 @@ Automatically checks: process status · Accessibility · Input Monitoring · aud
 **No response to hotkeys** → check Input Monitoring permission
 **Transcription not pasting** → check Accessibility permission
 **Online correction not applying** → re-run `whisperkey setup` or set `OPENAI_API_KEY`
+**Electron/Web chat apps log `inject_path=applescript`** → expected for inputs that do not expose AX roles cleanly; targeted paste is the compatibility path
 
 ```bash
 tail -f /tmp/whisperkey.log                            # live logs

@@ -133,6 +133,7 @@ WhisperKey 在后台运行，不需要打开任何窗口。
 
 ```bash
 whisperkey setup   # 重新运行安装向导
+whisperkey permissions  # 打开正确的 macOS 权限页并显示 Python.app 路径
 whisperkey help    # 检查权限、模型、音频
 ```
 
@@ -197,6 +198,7 @@ whisperkey help
 **按快捷键没有反应** → 检查输入监控权限
 **转录结果没有粘贴** → 检查辅助功能权限
 **在线纠错没有生效** → 重新运行 `whisperkey setup` 或设置 `OPENAI_API_KEY`
+**Electron / Web 聊天输入框显示 `inject_path=applescript`** → 这是预期兼容路径；这类输入框常常不会完整暴露 AX 文本角色
 
 ```bash
 tail -f /tmp/whisperkey.log                            # 实时日志
