@@ -10,6 +10,8 @@ from whisperkey_mac.i18n import t
 from whisperkey_mac.output import TextOutput
 from whisperkey_mac.transcriber import Transcriber
 
+_AUTOPASTE_BLOCKED_BUNDLE_IDS = {"com.apple.finder"}
+
 
 class App:
     def __init__(self) -> None:
@@ -18,6 +20,7 @@ class App:
         self._transcriber = Transcriber(self._config)
         self._output = TextOutput(self._config)
         self._transcribe_lock = threading.Lock()
+        self._record_target_bundle_id: str | None = None
 
         cfg = self._config
         self._hotkey = HotkeyListener(
@@ -94,7 +97,7 @@ class App:
         )
 
         # Phase 1: create invisible overlay. Phase 2 wires it to state machine.
-        self._overlay = OverlayPanel.create()
+        self._overlay = OverlayPanel.create(cfg.result_max_lines)
 
         # Block on Cocoa run loop. Returns when _check_quit calls terminate_().
         app.run()
@@ -115,32 +118,73 @@ class App:
     def _start_recording(self) -> None:
         if not hasattr(self, '_overlay'):
             return  # safety guard before overlay is initialized
+        self._record_target_bundle_id = self._frontmost_bundle_id()
         from whisperkey_mac.overlay import dispatch_to_main
         dispatch_to_main(self._overlay.show_recording)
         self._recorder.start()
 
+    def _hide_overlay_after_cancel(self, dismiss_duration_s: float = 0.15) -> None:
+        if not hasattr(self, '_overlay'):
+            return
+        from whisperkey_mac.overlay import dispatch_to_main
+        dispatch_to_main(self._overlay.hide_after_paste, dismiss_duration_s)
+
+    def _frontmost_bundle_id(self) -> str | None:
+        try:
+            from AppKit import NSWorkspace
+
+            app = NSWorkspace.sharedWorkspace().frontmostApplication()
+            if app is None:
+                return None
+            bundle_id = app.bundleIdentifier()
+            return str(bundle_id) if bundle_id else None
+        except Exception:
+            return None
+
+    def _should_attempt_direct_paste(self) -> bool:
+        from whisperkey_mac.ax_detect import is_cursor_in_text_field
+
+        bundle_id = self._frontmost_bundle_id()
+        if bundle_id is None:
+            return False
+        if bundle_id in _AUTOPASTE_BLOCKED_BUNDLE_IDS:
+            return False
+
+        if is_cursor_in_text_field():
+            return True
+
+        # Some Electron/Web chat inputs don't expose AXEditable/role cleanly.
+        # For normal apps we still attempt active-app injection and let output.py
+        # fall back to clipboard if both paste paths fail.
+        print(f"[whisperkey] AX text-field detection missed bundle={bundle_id}; trying direct inject anyway.")
+        return True
+
     def _stop_and_transcribe(self) -> None:
         if not hasattr(self, '_overlay'):
             return  # safety guard before overlay is initialized
-        from whisperkey_mac.overlay import dispatch_to_main
-        dispatch_to_main(self._overlay.show_transcribing)
         recording = self._recorder.stop_and_save()
+        target_bundle_id = self._record_target_bundle_id
+        self._record_target_bundle_id = None
         cfg = self._config
         lang = cfg.ui_language
 
         if recording is None:
             print(f"[whisperkey] {t('recording_too_short', lang)}")
+            self._hide_overlay_after_cancel()
             return
+
+        from whisperkey_mac.overlay import dispatch_to_main
+        dispatch_to_main(self._overlay.show_transcribing)
 
         print(f"[whisperkey] {t('transcribing', lang)} {recording.duration_s:.1f}s...")
 
         threading.Thread(
             target=self._transcribe_and_inject,
-            args=(recording,),
+            args=(recording, target_bundle_id),
             daemon=True,
         ).start()
 
-    def _transcribe_and_inject(self, recording) -> None:
+    def _transcribe_and_inject(self, recording, target_bundle_id: str | None = None) -> None:
         cfg = self._config
         lang = cfg.ui_language
 
@@ -149,6 +193,7 @@ class App:
                 text = self._transcriber.transcribe(recording.path)
             except Exception as exc:
                 print(f"[whisperkey] {t('transcribe_error', lang)}: {exc}")
+                self._hide_overlay_after_cancel()
                 return
             finally:
                 try:
@@ -158,32 +203,41 @@ class App:
 
             if not text:
                 print(f"[whisperkey] {t('no_speech', lang)}")
+                self._hide_overlay_after_cancel()
                 return
+
+            from whisperkey_mac.online_correct import maybe_correct_online
+
+            final_text = maybe_correct_online(text, cfg)
+            if final_text != text:
+                print(f"[whisperkey] {t('online_corrected', lang)}")
 
             if not hasattr(self, '_overlay'):
                 # Fallback: behave as before Phase 2 (always inject)
-                self._output.inject(text)
+                self._output.inject(final_text, target_bundle_id=target_bundle_id)
                 return
 
-            from whisperkey_mac.ax_detect import is_cursor_in_text_field
             from whisperkey_mac.overlay import dispatch_to_main
 
-            print(f"[whisperkey] → {text!r}")
+            print(f"[whisperkey] → {final_text!r}")
 
-            in_text_field = is_cursor_in_text_field()
+            in_text_field = self._should_attempt_direct_paste()
 
             if in_text_field:
-                # RST-01: cursor in text input — paste silently and hide overlay fast
-                result = self._output.inject(text)  # inject() copies to clipboard AND pastes
+                # Input field: auto-paste, but still surface the transcribed result briefly.
+                result = self._output.inject(final_text, target_bundle_id=target_bundle_id)
                 print(f"[whisperkey] {t('injected', lang)} {result}.")
-                dispatch_to_main(self._overlay.hide_after_paste)
+                print(f"[whisperkey] inject_path={result}")
+                if result in {"inserted", "applescript"}:
+                    dispatch_to_main(self._overlay.show_result, final_text, "已输入", 1.2, 0.25)
+                else:
+                    dispatch_to_main(self._overlay.show_result, final_text, "已复制到剪贴板", 3.0, 0.4)
             else:
-                # RST-02/03/04: cursor not in text input — copy to clipboard and show result
+                # Non-text context: only copy to clipboard. Never attempt paste here.
                 import pyperclip
-                pyperclip.copy(text)  # text goes to clipboard; no paste attempt
+                pyperclip.copy(final_text)  # text goes to clipboard; no paste attempt
                 print(f"[whisperkey] {t('injected', lang)} clipboard.")
-                dispatch_to_main(self._overlay.show_result, text)
-                # overlay auto-dismisses after 3 seconds via callLater in show_result()
+                dispatch_to_main(self._overlay.show_result, final_text, "已复制到剪贴板", 3.0, 0.4)
 
 
 def detect() -> None:
@@ -211,7 +265,12 @@ def main() -> None:
 
     if args and args[0] == "setup":
         from whisperkey_mac.setup_wizard import run_setup
-        run_setup(start_after=False)
+        run_setup(start_after=True)
+        return
+
+    if args and args[0] in ("permissions", "settings"):
+        from whisperkey_mac.setup_wizard import run_permissions
+        run_permissions(open_settings=True)
         return
 
     if args and args[0] in ("help", "--help", "-h"):
@@ -227,9 +286,7 @@ def main() -> None:
     if not config_exists():
         if sys.stdin.isatty():
             from whisperkey_mac.setup_wizard import run_setup
-            run_setup(start_after=False)
-            # After setup, reload config and run
-            App().run()
+            run_setup(start_after=True)
             return
         else:
             # Running as background service without config — save defaults silently

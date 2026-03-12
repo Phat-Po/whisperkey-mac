@@ -2,42 +2,42 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Completed 02-state-machine-thread-wiring-02-PLAN.md (checkpoint:human-verify Task 3 pending)
-last_updated: "2026-03-09T09:30:00.000Z"
-last_activity: 2026-03-09 — Completed Phase 2 Plan 02 auto-tasks; awaiting smoke test checkpoint
+status: verification_pending
+stopped_at: Completed Plan 5 implementation; multiline HUD and optional OpenAI correction need manual verification with a real API key
+last_updated: "2026-03-12T13:25:00.000Z"
+last_activity: 2026-03-12 — Added multiline result HUD, optional OpenAI correction via Keychain/env, setup step, and test coverage
 progress:
   total_phases: 4
-  completed_phases: 1
-  total_plans: 4
-  completed_plans: 4
-  percent: 37
+  completed_phases: 4
+  total_plans: 10
+  completed_plans: 9
+  percent: 90
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-09)
+See: .planning/PROJECT.md (updated 2026-03-12)
 
 **Core value:** 按住热键说话，松开就出现文字——零延迟感、零打断工作流。
-**Current focus:** Phase 2 — State Machine & Thread Wiring
+**Current focus:** Post-MVP Queue — Plan 5 manual verification (multiline result HUD + optional OpenAI correction)
 
 ## Current Position
 
-Phase: 2 of 4 (State Machine & Thread Wiring)
-Plan: 2 of 2 in current phase
-Status: Checkpoint — awaiting human smoke test verification (Task 3 of 02-02)
-Last activity: 2026-03-09 — Completed Phase 2 Plan 02 auto-tasks (Tasks 1 & 2); checkpoint:human-verify pending
+Phase: Post-MVP Queue
+Plan: 5 of 6 (Result Readability & Optional Online Correction)
+Status: Verification pending — code and tests complete; real OpenAI key path still needs manual check
+Last activity: 2026-03-12 — Added multiline HUD, setup/keychain wiring, OpenAI correction fallback logic, and regression tests
 
-Progress: [████░░░░░░] 37%
+Progress: [█████████░] 90%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 2
+- Total plans completed: 7
 - Average duration: ~32 min
-- Total execution time: ~1.05 hours
+- Total execution time: ~1.5 hours
 
 **By Phase:**
 
@@ -45,14 +45,14 @@ Progress: [████░░░░░░] 37%
 |-------|-------|-------|----------|
 | Phase 01-threading-foundation P01 | 3 min | 2 tasks | 4 files |
 | Phase 01-threading-foundation P02 | ~60 min | 2 tasks | 2 files |
+| Phase 02-state-machine-thread-wiring P01 | 10 min | 3 tasks | 5 files |
+| Phase 02-state-machine-thread-wiring P02 | 15 min | 2 tasks | 1 file |
+| Phase 03-visual-polish-animation | ad-hoc | 2 tasks | 6 files |
+| Phase 04-edge-cases-hardening | ad-hoc | 1 task | 3 files |
 
 **Recent Trend:**
-- Last 5 plans: ~32 min avg
-- Trend: baseline
-
-*Updated after each plan completion*
-| Phase 02-state-machine-thread-wiring P01 | 10 | 3 tasks | 5 files |
-| Phase 02-state-machine-thread-wiring P02 | 15 min | 2 tasks | 1 file |
+- Last 6 plans/tasks: mixed plan + direct implementation
+- Trend: milestone complete; future work is queued as explicit Post-MVP follow-up
 
 ## Accumulated Context
 
@@ -78,17 +78,33 @@ Recent decisions affecting current work:
 - [Phase 02-state-machine-thread-wiring P02]: Deferred imports (inside methods) for dispatch_to_main and is_cursor_in_text_field — matches existing pattern of confining AppKit-adjacent imports inside run()
 - [Phase 02-state-machine-thread-wiring P02]: Safety guard (hasattr '_overlay') applied to all three modified methods to protect against pre-initialization race
 - [Phase 02-state-machine-thread-wiring P02]: pyobjc-framework-ApplicationServices was already declared in pyproject.toml by Plan 02-01 — no change needed
+- [Phase 03-visual-polish-animation]: Use layer-backed CALayer indicators for bars/dots so public OverlayPanel API stays unchanged
+- [Phase 03-visual-polish-animation]: Reuse generation tokens for timer invalidation and fade completion guards — stale callLater callbacks become no-ops after a new state change
+- [Phase 04-edge-cases-hardening]: Do not enter TRANSCRIBING until `stop_and_save()` returns a valid recording; short/empty captures must fast-dismiss the HUD
+- [Phase 04-edge-cases-hardening]: Treat Finder as clipboard-only even if AX reports a text-like element; avoiding false-positive paste attempts is more important than aggressive auto-injection
+- [Phase 04-edge-cases-hardening]: LaunchAgent verification is satisfied by an installed GUI-session plist with `LimitLoadToSessionType = Aqua` plus a running `launchctl print gui/<uid>/com.whisperkey` job
+- [Plan 05]: Long result text should expand the HUD vertically rather than widening the panel; recording and transcribing states always reset to the base 74pt layout
+- [Plan 05]: Online correction is optional and uses the user's own OpenAI API key; no WhisperKey-hosted backend or OAuth flow is introduced
+- [Plan 05]: Key lookup order is `OPENAI_API_KEY` first, then macOS Keychain; any unavailable dependency, timeout, or API failure must fall back to the raw transcript
+- [Post-MVP Queue]: Streaming remains a separate research spike after the current optional online-correction path is manually verified
 
 ### Pending Todos
 
-None yet.
+- Run a manual Phase 5 smoke with a real OpenAI API key:
+  1. Long transcript grows the HUD to 2-3 lines and still auto-dismisses correctly
+  2. `whisperkey setup` can save an OpenAI key to Keychain
+  3. Online correction enabled + valid key uses corrected text in overlay and final paste
+  4. Missing/invalid key cleanly falls back to the raw transcript
+- After Phase 5 manual verification passes, begin Plan 6 as the streaming ASR research spike
 
 ### Blockers/Concerns
 
-- [Known issue — Phase 1]: Ctrl+C shutdown message not printed — pynput multiprocessing subprocess calls os._exit() before Python cleanup. Does not affect LaunchAgent/pkill shutdown. Noted for Phase 4 hardening review.
+- [Known issue — Phase 1]: Ctrl+C shutdown message not printed — pynput multiprocessing subprocess calls os._exit() before Python cleanup. Does not affect LaunchAgent/pkill shutdown.
+- [Verification gap]: Online correction path still needs one manual run with a real OpenAI API key; automated tests only cover mocks/fallbacks.
+- [Operational note]: Online correction now requires the `openai` package in the runtime environment in addition to the repo dependency declaration.
 
 ## Session Continuity
 
-Last session: 2026-03-09T09:30:00.000Z
-Stopped at: Checkpoint:human-verify — Task 3 of 02-02-PLAN.md (smoke test, app must be running)
+Last session: 2026-03-12T13:25:00.000Z
+Stopped at: Plan 5 code complete; waiting for manual OpenAI-key verification before starting Plan 6
 Resume file: None

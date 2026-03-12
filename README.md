@@ -33,7 +33,7 @@ Most macOS dictation tools are either online-only or expensive:
 | Customizable hotkeys | ✅ | ✅ | ❌ | ❌ |
 | No app install needed | ✅ | ❌ | ❌ | — |
 
-WhisperKey runs entirely on your Mac using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). No cloud, no API keys, no recurring cost.
+WhisperKey keeps transcription on your Mac using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). The core dictation flow stays local-first; optional OpenAI correction can be enabled later with your own API key.
 
 ---
 
@@ -46,6 +46,8 @@ WhisperKey runs entirely on your Mac using [faster-whisper](https://github.com/S
 | 🌍 | Supports Chinese, English and 90+ languages |
 | 💾 | Runs fully offline — no internet required after first run |
 | 📋 | Auto-copies and pastes transcription result into the active app |
+| 🪟 | Result HUD expands to up to 3 lines for longer transcripts |
+| ✨ | Optional OpenAI online correction using your own API key |
 | 🔧 | Interactive bilingual setup wizard (zh/en) |
 | 🚀 | Auto-start on login via macOS LaunchAgent |
 | ⌨️ | Fully customizable hotkeys |
@@ -99,6 +101,7 @@ The first run automatically launches an interactive setup wizard, guiding you th
 3. **Whisper model** — base / small / large-v3-turbo
 4. **Hotkeys** — use defaults or define your own
 5. **System permissions** — guided walkthrough
+6. **Online correction (optional)** — enable OpenAI correction and save your API key in macOS Keychain
 
 ### Subsequent Use
 
@@ -141,9 +144,20 @@ Config is saved at `~/.config/whisperkey/config.json`, editable manually:
   "transcribe_language": "auto",
   "model_size": "small",
   "hold_key": "alt_r",
-  "handsfree_keys": ["alt_r", "cmd_r"]
+  "handsfree_keys": ["alt_r", "cmd_r"],
+  "result_max_lines": 3,
+  "online_correct_enabled": false,
+  "online_correct_provider": "openai",
+  "online_correct_model": "gpt-5-mini"
 }
 ```
+
+### Optional Online Correction
+
+- Disabled by default. Enable it from `whisperkey setup`.
+- Uses your own OpenAI API key. The setup wizard stores it in macOS Keychain.
+- `OPENAI_API_KEY` overrides the saved Keychain value for debugging or temporary use.
+- If the key is missing, the request times out, or OpenAI returns an error, WhisperKey falls back to the raw transcript automatically.
 
 ### Model Options
 
@@ -182,6 +196,7 @@ Automatically checks: process status · Accessibility · Input Monitoring · aud
 
 **No response to hotkeys** → check Input Monitoring permission
 **Transcription not pasting** → check Accessibility permission
+**Online correction not applying** → re-run `whisperkey setup` or set `OPENAI_API_KEY`
 
 ```bash
 tail -f /tmp/whisperkey.log                            # live logs
@@ -268,7 +283,9 @@ whisperkey_mac/
 ├── keyboard_listener.py  # Hold-key + hands-free hotkey logic
 ├── audio.py              # Audio recording (sounddevice)
 ├── transcriber.py        # Whisper STT (faster-whisper)
-├── output.py             # Text injection (clipboard + AppleScript)
+├── online_correct.py     # Optional OpenAI correction pipeline
+├── keychain.py           # macOS Keychain helpers for OpenAI API key
+├── output.py             # Text injection (clipboard + focused-app paste)
 ├── setup_wizard.py       # Interactive terminal setup
 └── help_cmd.py           # Troubleshooter
 ```

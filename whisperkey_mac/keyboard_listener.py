@@ -52,7 +52,7 @@ class HotkeyListener:
 
     HANDS-FREE MODE:
         Both handsfree_keys held simultaneously → toggle recording on/off
-        Press the combo again → stop + transcribe
+        Press the combo again, then release it   → stop + transcribe
     """
 
     def __init__(
@@ -78,6 +78,8 @@ class HotkeyListener:
         self._mode = "idle"
         self._hold_press_time: float = 0.0
         self._hold_timer: threading.Timer | None = None
+        self._handsfree_combo_active = False
+        self._handsfree_stop_pending = False
 
         self._listener: keyboard.Listener | None = None
 
@@ -92,6 +94,11 @@ class HotkeyListener:
         if self._hold_timer:
             self._hold_timer.cancel()
             self._hold_timer = None
+        with self._lock:
+            self._held_keys.clear()
+            self._handsfree_combo_active = False
+            self._handsfree_stop_pending = False
+            self._mode = "idle"
         if self._listener is not None:
             self._listener.stop()
             self._listener = None
@@ -102,31 +109,38 @@ class HotkeyListener:
         if key is None:
             return
 
+        should_start_handsfree = False
         with self._lock:
             self._held_keys.add(key)
             mode = self._mode
             held = set(self._held_keys)
+            combo_active = self._handsfree_combo_active
+            stop_pending = self._handsfree_stop_pending
 
         # Check hands-free combo (all handsfree keys held simultaneously)
-        if (
+        combo_pressed = (
             len(self._handsfree_pkeys) >= 2
             and all(k in held for k in self._handsfree_pkeys)
-        ):
-            with self._lock:
-                mode = self._mode
-            if mode == "idle":
-                # Cancel any pending hold timer
+        )
+        if combo_pressed:
+            if stop_pending:
+                return
+            if not combo_active:
                 with self._lock:
-                    if self._hold_timer:
-                        self._hold_timer.cancel()
-                        self._hold_timer = None
-                    self._mode = "handsfree"
+                    self._handsfree_combo_active = True
+                    mode = self._mode
+                    if mode == "idle":
+                        if self._hold_timer:
+                            self._hold_timer.cancel()
+                            self._hold_timer = None
+                        self._mode = "handsfree"
+                        self._handsfree_stop_pending = False
+                        should_start_handsfree = True
+                    elif mode == "handsfree":
+                        self._handsfree_stop_pending = True
+            if should_start_handsfree:
                 print("[whisperkey] Hands-free ON — recording...")
                 self._on_record_start()
-            elif mode == "handsfree":
-                with self._lock:
-                    self._mode = "idle"
-                self._on_record_stop_transcribe()
             return
 
         # Hold-key press logic
@@ -145,9 +159,25 @@ class HotkeyListener:
         if key is None:
             return
 
+        should_stop_handsfree = False
         with self._lock:
             self._held_keys.discard(key)
             mode = self._mode
+            held = set(self._held_keys)
+
+            combo_pressed = (
+                len(self._handsfree_pkeys) >= 2
+                and all(k in held for k in self._handsfree_pkeys)
+            )
+            if self._handsfree_combo_active and not combo_pressed:
+                self._handsfree_combo_active = False
+
+            if self._handsfree_stop_pending:
+                any_handsfree_held = any(k in held for k in self._handsfree_pkeys)
+                if not any_handsfree_held and self._mode == "handsfree":
+                    self._handsfree_stop_pending = False
+                    self._mode = "idle"
+                    should_stop_handsfree = True
 
         if key == self._hold_pkey:
             # Cancel pending timer (accidental tap — released before MIN_HOLD_S)
@@ -163,6 +193,10 @@ class HotkeyListener:
                 with self._lock:
                     self._mode = "idle"
                 self._on_record_stop_transcribe()
+                return
+
+        if should_stop_handsfree:
+            self._on_record_stop_transcribe()
 
     def _start_hold_recording(self) -> None:
         with self._lock:

@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import getpass
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
 
-from whisperkey_mac.config import AppConfig, save_config
+from whisperkey_mac.config import AppConfig, load_config, save_config
 from whisperkey_mac.i18n import t, WHISPER_LANGUAGES
 from whisperkey_mac.keyboard_listener import pynput_key_to_name
+from whisperkey_mac.keychain import save_openai_api_key
 
 try:
     from rich.console import Console
@@ -72,14 +74,57 @@ def _model_cached(model_id: str) -> bool:
     return any(cache.glob(f"models--Systran--{key}"))
 
 
+def _resolve_python_app_path(
+    executable: str,
+    *,
+    base_executable: str | None = None,
+    base_prefix: str | None = None,
+) -> str:
+    candidates: list[Path] = []
+
+    if base_prefix:
+        candidates.append(Path(base_prefix) / "Resources" / "Python.app")
+
+    for raw_path in filter(None, [base_executable, executable]):
+        path = Path(str(raw_path)).expanduser()
+        resolved = path.resolve()
+
+        for probe in [path, resolved]:
+            for parent in [probe] + list(probe.parents):
+                if parent.name.endswith(".app"):
+                    return str(parent)
+
+            if probe.parent.name == "bin":
+                candidates.append(probe.parent.parent / "Resources" / "Python.app")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+
+    return str(Path(base_executable or executable).expanduser().resolve())
+
+
 def _python_app_path() -> str:
-    exe = sys.executable
-    # Walk up to find the .app bundle
-    p = Path(exe)
-    for parent in [p] + list(p.parents):
-        if parent.name.endswith(".app"):
-            return str(parent)
-    return exe
+    return _resolve_python_app_path(
+        sys.executable,
+        base_executable=getattr(sys, "_base_executable", None),
+        base_prefix=getattr(sys, "base_prefix", None),
+    )
+
+
+def _open_permission_settings() -> None:
+    try:
+        subprocess.run([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
+        ], check=False)
+        time.sleep(1)
+        subprocess.run([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        ], check=False)
+    except Exception:
+        pass
 
 
 # ── Step implementations ───────────────────────────────────────────────────────
@@ -110,7 +155,7 @@ def _step_transcribe_language(lang: str) -> tuple[str, str | None]:
     Step 2: Transcription language.
     Returns (transcribe_language, whisper_language).
     """
-    _print_header(lang, 2, 5, t("step_transcribe_title", lang))
+    _print_header(lang, 2, 6, t("step_transcribe_title", lang))
     print(f"  {t('step_transcribe_prompt', lang)}")
 
     options = [
@@ -173,7 +218,7 @@ def _pick_other_language(lang: str) -> tuple[str, str | None]:
 
 def _step_model(lang: str) -> str:
     """Step 3: Choose model. Returns model_size string."""
-    _print_header(lang, 3, 5, t("step_model_title", lang))
+    _print_header(lang, 3, 6, t("step_model_title", lang))
     print(f"  {t('step_model_prompt', lang)}\n")
 
     models = [
@@ -199,7 +244,7 @@ def _step_hotkeys(lang: str) -> tuple[str, list[str]]:
     Step 4: Configure hotkeys.
     Returns (hold_key_name, handsfree_keys_names).
     """
-    _print_header(lang, 4, 5, t("step_hotkey_title", lang))
+    _print_header(lang, 4, 6, t("step_hotkey_title", lang))
     print(f"  {t('step_hotkey_defaults', lang)}")
     print(f"    {t('hotkey_hold_label', lang)}: {t('hotkey_hold_default', lang)}")
     print(f"    {t('hotkey_handsfree_label', lang)}: {t('hotkey_handsfree_default', lang)}")
@@ -288,7 +333,7 @@ def _detect_combo_keys(lang: str, prompt: str) -> list[str]:
 
 def _step_permissions(lang: str) -> None:
     """Step 5: Permission guidance."""
-    _print_header(lang, 5, 5, t("step_perm_title", lang))
+    _print_header(lang, 5, 6, t("step_perm_title", lang))
     print(f"  {t('step_perm_desc', lang)}\n")
     print(f"  1. {t('perm_input', lang)}")
     print(f"     → {t('perm_input_path', lang)}")
@@ -308,20 +353,40 @@ def _step_permissions(lang: str) -> None:
     )
 
     if choice == 1:
-        # Open Input Monitoring settings
-        try:
-            subprocess.run([
-                "open",
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent",
-            ], check=False)
-            time.sleep(1)
-            subprocess.run([
-                "open",
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-            ], check=False)
-        except Exception:
-            pass
+        _open_permission_settings()
         print(f"\n  {t('perm_restart_note', lang)}")
+
+
+def _step_online_correction(lang: str) -> bool:
+    _print_header(lang, 6, 6, t("step_correct_title", lang))
+    print(f"  {t('step_correct_prompt', lang)}\n")
+
+    choice = _ask(
+        "",
+        [t("correct_enable", lang), t("correct_skip", lang)],
+        lang,
+    )
+    if choice != 1:
+        return False
+
+    key_choice = _ask(
+        "",
+        [t("correct_key_now", lang), t("correct_key_later", lang)],
+        lang,
+    )
+    if key_choice == 1:
+        api_key = getpass.getpass(f"  {t('correct_key_prompt', lang)} ").strip()
+        if api_key:
+            if save_openai_api_key(api_key):
+                print(f"  {t('correct_key_saved', lang)}")
+            else:
+                print(f"  {t('correct_key_save_failed', lang)}")
+        else:
+            print(f"  {t('correct_key_missing_note', lang)}")
+    else:
+        print(f"  {t('correct_key_missing_note', lang)}")
+
+    return True
 
 
 # ── Main wizard entry ─────────────────────────────────────────────────────────
@@ -334,13 +399,14 @@ def run_setup(start_after: bool = True) -> AppConfig:
     """
     lang = _step_language()
 
-    _print_header(lang, 1, 5, t("step_lang_title", lang))
+    _print_header(lang, 1, 6, t("step_lang_title", lang))
     print(f"  ✓ {'中文' if lang == 'zh' else 'English'}\n")
 
     transcribe_language, whisper_language = _step_transcribe_language(lang)
     model_size = _step_model(lang)
     hold_key, handsfree_keys = _step_hotkeys(lang)
     _step_permissions(lang)
+    online_correct_enabled = _step_online_correction(lang)
 
     cfg = AppConfig(
         ui_language=lang,
@@ -349,6 +415,7 @@ def run_setup(start_after: bool = True) -> AppConfig:
         model_size=model_size,
         hold_key=hold_key,
         handsfree_keys=handsfree_keys,
+        online_correct_enabled=online_correct_enabled,
     )
     save_config(cfg)
 
@@ -357,4 +424,42 @@ def run_setup(start_after: bool = True) -> AppConfig:
     print(f"  {t('setup_done_sub', lang)}")
     print()
 
+    if start_after:
+        print(f"  {t('setup_starting', lang)}")
+        print()
+        from whisperkey_mac.main import App
+
+        App().run()
+
     return cfg
+
+
+def run_permissions(open_settings: bool = True) -> None:
+    cfg = load_config()
+    lang = cfg.ui_language
+
+    from whisperkey_mac.help_cmd import _check_accessibility, _check_input_monitoring
+
+    access_ok = _check_accessibility()
+    input_ok = _check_input_monitoring()
+    python_app = _python_app_path()
+
+    print()
+    print(f"  {'─'*48}")
+    print(f"  {t('permissions_title', lang)}")
+    print(f"  {'─'*48}")
+    print()
+    print(f"  {t('help_accessibility', lang)}: {t('help_ok', lang) if access_ok else t('help_fail', lang)}")
+    print(f"  {t('help_input_monitor', lang)}: {t('help_ok', lang) if input_ok else t('help_fail', lang)}")
+    print()
+    print(f"  {t('perm_add_python', lang)}")
+    print(f"  {t('perm_python_path_label', lang)}")
+    print(f"    {python_app}")
+    print(f"  {t('perm_input_path', lang)}")
+    print(f"  {t('perm_access_path', lang)}")
+    print()
+
+    if open_settings:
+        _open_permission_settings()
+        print(f"  {t('permissions_opened', lang)}")
+        print()

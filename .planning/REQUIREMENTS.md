@@ -13,28 +13,28 @@
 
 ### Recording State
 
-- [ ] **REC-01**: 录音期间浮层显示动态波形动画（4-6 bars，~30fps，idle sine-wave）
-- [ ] **REC-02**: 浮层出现动效：150ms fade-in + 8pt 上滑，ease-out
+- [x] **REC-01**: 录音期间浮层显示动态波形动画（4-6 bars，~30fps，idle sine-wave）
+- [x] **REC-02**: 浮层出现动效：150ms fade-in + 8pt 上滑，ease-out
 
 ### Transcribing State
 
-- [ ] **TRN-01**: 松开热键后，浮层切换到"转录中"状态，显示 3 dots 脉冲动画（300ms/dot，900ms 全循环）
-- [ ] **TRN-02**: 录音状态平滑切换到转录中状态（无闪烁）
+- [x] **TRN-01**: 松开热键后，浮层切换到"转录中"状态，显示 3 dots 脉冲动画（300ms/dot，900ms 全循环）
+- [x] **TRN-02**: 录音状态平滑切换到转录中状态（无闪烁）
 
 ### Result State — Text Input Branch
 
-- [ ] **RST-01**: 转录完成，若光标在文字输入框，静默注入文字，浮层 200ms fade-out 消失
+- [x] **RST-01**: 转录完成，若光标在文字输入框，静默注入文字，并短暂显示转录结果与"已输入"提示
 
 ### Result State — Clipboard Branch
 
-- [ ] **RST-02**: 转录完成，若光标不在文字输入框，浮层显示转录文字内容
-- [ ] **RST-03**: 浮层同时显示"已复制到剪贴板"提示文字
-- [ ] **RST-04**: 3 秒后浮层 400ms fade-out 消失
+- [x] **RST-02**: 转录完成，若光标不在文字输入框，浮层显示转录文字内容
+- [x] **RST-03**: 浮层根据输出分支显示"已输入"或"已复制到剪贴板"提示文字
+- [x] **RST-04**: 输入框分支约 1.2 秒后 250ms fade-out；剪贴板分支 3 秒后 400ms fade-out；取消/空录音分支快速收尾
 
 ### Text Input Detection
 
-- [ ] **DET-01**: 使用 macOS Accessibility API 判断当前焦点是否在文字输入框（AXRole 匹配 AXTextField / AXTextArea / AXComboBox / AXSearchField）
-- [ ] **DET-02**: Accessibility API 失败或返回 None 时，默认走剪贴板路径（安全降级）
+- [x] **DET-01**: 使用 macOS Accessibility API 判断当前焦点是否在文字输入框（AXRole 匹配 AXTextField / AXTextArea / AXComboBox / AXSearchField）
+- [x] **DET-02**: Accessibility API 失败或返回 None 时，默认走剪贴板路径（安全降级）
 
 ## v2 Requirements
 
@@ -42,6 +42,23 @@
 
 - **VIS-01**: 波形改为 RMS 驱动（实时音频振幅），替代 idle sine-wave
 - **VIS-02**: 多显示器支持——浮层跟随当前活跃窗口所在的屏幕
+
+### Result Readability
+
+- [x] **RES-01**: 结果浮层支持最多 2-3 行显示，长文本先换行再截断
+- [x] **RES-02**: 结果浮层根据文本行数自适应高度，不影响录音/转录状态的固定布局
+
+### Online Correction
+
+- [x] **COR-01**: 转录完成后可选执行 OpenAI 在线纠错，用于修正常见同音字、近音词、上下文小错误
+- [x] **COR-02**: 在线纠错必须可开关；请求失败、缺 key、超时或解析失败时回退原始转录结果，不阻断输出
+
+## v3 Research Backlog
+
+### Streaming / Incremental ASR
+
+- **STR-01**: 评估本地实时或准实时转录方案，支持边说边显示增量文本
+- **STR-02**: 在实现前对延迟、准确率、CPU/内存成本、Apple Silicon 适配难度做研究对比
 
 ## Out of Scope
 
@@ -60,16 +77,22 @@
 | OVL-01 | Phase 1 | Complete |
 | OVL-02 | Phase 1 | Complete |
 | OVL-03 | Phase 1 | Complete |
-| REC-01 | Phase 3 | Pending |
-| REC-02 | Phase 3 | Pending |
-| TRN-01 | Phase 3 | Pending |
-| TRN-02 | Phase 3 | Pending |
-| RST-01 | Phase 2 | Pending |
-| RST-02 | Phase 2 | Pending |
-| RST-03 | Phase 2 | Pending |
-| RST-04 | Phase 2 | Pending |
-| DET-01 | Phase 2 | Pending |
-| DET-02 | Phase 2 | Pending |
+| REC-01 | Phase 3 | Complete |
+| REC-02 | Phase 3 | Complete |
+| TRN-01 | Phase 3 | Complete |
+| TRN-02 | Phase 3 | Complete |
+| RST-01 | Phase 2 | Complete |
+| RST-02 | Phase 3 | Complete |
+| RST-03 | Phase 3 | Complete |
+| RST-04 | Phase 4 | Complete |
+| DET-01 | Phase 2 | Complete |
+| DET-02 | Phase 2 | Complete |
+| RES-01 | Plan 5 | Complete |
+| RES-02 | Plan 5 | Complete |
+| COR-01 | Plan 5 | Complete |
+| COR-02 | Plan 5 | Complete |
+| STR-01 | Plan 6 | Pending |
+| STR-02 | Plan 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 11 total
@@ -78,4 +101,4 @@
 
 ---
 *Requirements defined: 2026-03-09*
-*Last updated: 2026-03-09 — traceability confirmed after roadmap creation*
+*Last updated: 2026-03-12 — Plan 5 multiline HUD and optional OpenAI correction implemented*

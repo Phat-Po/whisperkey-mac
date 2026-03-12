@@ -26,7 +26,7 @@ class Transcriber:
             str(audio_path),
             language=self._config.language,  # None = auto-detect
             task="transcribe",
-            beam_size=5,
+            beam_size=1,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 300},
         )

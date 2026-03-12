@@ -2,24 +2,13 @@
 
 All AX API calls are mocked — no real Accessibility permission required.
 Tests cover: text input roles (True), non-text roles (False),
-AX error codes (False), and exceptions (False).
+AX enabled/editable guards (False), AX error codes (False), and exceptions (False).
 """
 import unittest.mock
 
 import pytest
 
-from whisperkey_mac.ax_detect import is_cursor_in_text_field
-
-
-def _make_ax_patch(focused_return, role_return=None):
-    """Helper: build side_effect list for AXUIElementCopyAttributeValue mock.
-
-    focused_return: (err_code, element_or_None) for the focused element query
-    role_return: (err_code, role_str_or_None) for the role query (None = not called)
-    """
-    if role_return is None:
-        return [focused_return]
-    return [focused_return, role_return]
+from whisperkey_mac.ax_detect import insert_text_at_cursor, is_cursor_in_text_field
 
 
 class TestTextInputRoles:
@@ -33,7 +22,7 @@ class TestTextInputRoles:
             unittest.mock.patch("whisperkey_mac.ax_detect.AXUIElementCreateSystemWide") as mock_sw,
             unittest.mock.patch(
                 "whisperkey_mac.ax_detect.AXUIElementCopyAttributeValue",
-                side_effect=[(0, mock_element), (0, role)],
+                side_effect=[(0, mock_element), (0, role), (0, True), (0, True)],
             ),
         ):
             mock_sw.return_value = unittest.mock.MagicMock()
@@ -60,6 +49,34 @@ class TestNonTextRoles:
         assert result is False, f"Expected False for role {role!r}"
 
 
+def test_disabled_text_role_returns_false():
+    mock_element = unittest.mock.MagicMock()
+    with (
+        unittest.mock.patch("whisperkey_mac.ax_detect.AXUIElementCreateSystemWide") as mock_sw,
+        unittest.mock.patch(
+            "whisperkey_mac.ax_detect.AXUIElementCopyAttributeValue",
+            side_effect=[(0, mock_element), (0, "AXTextField"), (0, False), (0, True)],
+        ),
+    ):
+        mock_sw.return_value = unittest.mock.MagicMock()
+        result = is_cursor_in_text_field()
+    assert result is False
+
+
+def test_non_editable_text_role_returns_false():
+    mock_element = unittest.mock.MagicMock()
+    with (
+        unittest.mock.patch("whisperkey_mac.ax_detect.AXUIElementCreateSystemWide") as mock_sw,
+        unittest.mock.patch(
+            "whisperkey_mac.ax_detect.AXUIElementCopyAttributeValue",
+            side_effect=[(0, mock_element), (0, "AXTextField"), (0, True), (0, False)],
+        ),
+    ):
+        mock_sw.return_value = unittest.mock.MagicMock()
+        result = is_cursor_in_text_field()
+    assert result is False
+
+
 def test_ax_error_returns_false():
     """DET-02: Returns False when AXUIElementCopyAttributeValue returns non-zero error code for focused element."""
     with (
@@ -82,3 +99,77 @@ def test_ax_exception_returns_false():
     ):
         result = is_cursor_in_text_field()
     assert result is False
+
+
+def test_insert_text_at_cursor_replaces_current_selection():
+    mock_element = unittest.mock.MagicMock()
+    selected_range = object()
+
+    with (
+        unittest.mock.patch("whisperkey_mac.ax_detect.AXUIElementCreateSystemWide", return_value=object()),
+        unittest.mock.patch(
+            "whisperkey_mac.ax_detect.AXUIElementCopyAttributeValue",
+            side_effect=[
+                (0, mock_element),
+                (0, "AXTextField"),
+                (0, True),
+                (0, True),
+                (0, "hello world"),
+                (0, selected_range),
+            ],
+        ),
+        unittest.mock.patch("whisperkey_mac.ax_detect.AXValueGetValue", return_value=(True, (6, 5))),
+        unittest.mock.patch("whisperkey_mac.ax_detect.AXValueCreate", return_value="next-range") as mock_create,
+        unittest.mock.patch(
+            "whisperkey_mac.ax_detect.AXUIElementSetAttributeValue",
+            side_effect=[0, 0],
+        ) as mock_set,
+    ):
+        assert insert_text_at_cursor("WhisperKey") is True
+
+    assert mock_set.call_args_list[0].args[1:] == ("AXValue", "hello WhisperKey")
+    assert mock_create.call_args.args == (4, (16, 0))
+    assert mock_set.call_args_list[1].args[1:] == ("AXSelectedTextRange", "next-range")
+
+
+def test_insert_text_at_cursor_returns_false_when_selected_range_missing():
+    mock_element = unittest.mock.MagicMock()
+
+    with (
+        unittest.mock.patch("whisperkey_mac.ax_detect.AXUIElementCreateSystemWide", return_value=object()),
+        unittest.mock.patch(
+            "whisperkey_mac.ax_detect.AXUIElementCopyAttributeValue",
+            side_effect=[
+                (0, mock_element),
+                (0, "AXTextField"),
+                (0, True),
+                (0, True),
+                (0, "hello world"),
+                (-25212, None),
+            ],
+        ),
+    ):
+        assert insert_text_at_cursor("WhisperKey") is False
+
+
+def test_insert_text_at_cursor_returns_false_when_setting_value_fails():
+    mock_element = unittest.mock.MagicMock()
+    selected_range = object()
+
+    with (
+        unittest.mock.patch("whisperkey_mac.ax_detect.AXUIElementCreateSystemWide", return_value=object()),
+        unittest.mock.patch(
+            "whisperkey_mac.ax_detect.AXUIElementCopyAttributeValue",
+            side_effect=[
+                (0, mock_element),
+                (0, "AXTextField"),
+                (0, True),
+                (0, True),
+                (0, "hello world"),
+                (0, selected_range),
+            ],
+        ),
+        unittest.mock.patch("whisperkey_mac.ax_detect.AXValueGetValue", return_value=(True, (6, 0))),
+        unittest.mock.patch("whisperkey_mac.ax_detect.AXUIElementSetAttributeValue", return_value=-25205),
+    ):
+        assert insert_text_at_cursor("WhisperKey ") is False

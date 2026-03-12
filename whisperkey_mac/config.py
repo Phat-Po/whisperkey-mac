@@ -42,6 +42,14 @@ class AppConfig:
 
     # ── Output ────────────────────────────────────────────────────────────────
     auto_paste: bool = True
+    result_max_lines: int = 3
+    online_correct_enabled: bool = False
+    online_correct_provider: str = "openai"
+    online_correct_model: str = "gpt-5-mini"
+    online_correct_timeout_s: float = 2.0
+    online_correct_min_chars: int = 6
+    online_correct_max_chars: int = 120
+    online_correct_min_cjk_ratio: float = 0.35
 
     # ── Legacy ────────────────────────────────────────────────────────────────
     record_button: str = "x1"
@@ -95,6 +103,12 @@ def load_config() -> AppConfig:
         cfg.min_duration_s = float(v)
     if v := os.getenv("WHISPERKEY_AUTO_PASTE"):
         cfg.auto_paste = v == "1"
+    if v := os.getenv("WHISPERKEY_RESULT_MAX_LINES"):
+        cfg.result_max_lines = max(1, int(v))
+    if v := os.getenv("WHISPERKEY_ONLINE_CORRECT"):
+        cfg.online_correct_enabled = v.strip().lower() in {"1", "true", "yes", "on"}
+    if v := os.getenv("WHISPERKEY_ONLINE_CORRECT_MODEL"):
+        cfg.online_correct_model = v.strip()
 
     # Sync transcribe_language → Whisper language param (if not set by env var)
     if cfg.language is None and cfg.transcribe_language != "auto":

@@ -9,6 +9,7 @@ description = "Voice input for macOS — hold a key to speak, release to transcr
 requires-python = ">=3.10"
 dependencies = [
     "faster-whisper>=1.0",
+    "openai>=1.0",
     "pynput>=1.7",
     "sounddevice>=0.4",
     "soundfile>=0.12",

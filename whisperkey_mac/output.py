@@ -14,14 +14,14 @@ class TextOutput:
         self._config = config
         self._kb = Controller()
 
-    def inject(self, text: str) -> str:
+    def inject(self, text: str, target_bundle_id: str | None = None) -> str:
         """
-        Inject text via clipboard paste (bypasses IME) and keep it in clipboard.
-        Returns: "pasted" | "clipboard" | "empty"
+        Inject text into the focused app and keep it in clipboard.
+        Returns: "inserted" | "applescript" | "clipboard" | "empty"
 
-        Using clipboard+paste instead of keyboard.type() because:
-        - Cmd+V inserts raw Unicode, bypassing the active input method (pinyin, etc.)
-        - Text stays in clipboard so user can manually paste with Cmd+V anytime
+        Preferred path is targeted AppleScript paste because some chat inputs only
+        react reliably to a real paste event. AX direct insertion remains a fallback
+        for controls where scripted paste is unavailable.
         """
         normalized = text.strip()
         if not normalized:
@@ -30,13 +30,20 @@ class TextOutput:
         # Always copy to clipboard first — text is always available via Cmd+V
         pyperclip.copy(normalized)
 
-        # Auto-paste via AppleScript Cmd+V (bypasses IME)
         try:
-            self._paste_clipboard()
-            return "pasted"
+            self._paste_clipboard(target_bundle_id)
+            return "applescript"
         except Exception:
-            # Paste failed but text is still in clipboard — user can Cmd+V manually
-            return "clipboard"
+            pass
+
+        try:
+            if self._insert_via_ax(normalized):
+                return "inserted"
+        except Exception:
+            pass
+
+        # All active injection paths failed but text is still in clipboard — user can Cmd+V manually
+        return "clipboard"
 
     def send_enter(self) -> None:
         mode = self._config.enter_mode.strip().lower()
@@ -49,15 +56,29 @@ class TextOutput:
         elif mode == "cmd_enter":
             self._tap_with_modifier(Key.cmd, Key.enter)
 
-    def _paste_clipboard(self) -> None:
-        # Use AppleScript to send Cmd+V — more reliable than pynput on macOS
+    def _paste_clipboard(self, target_bundle_id: str | None = None) -> None:
+        # AppleScript paste proved more reliable in earlier builds than posting
+        # low-level key events via pynput when overlays and hands-free timing are involved.
+        script = ["osascript"]
+        if target_bundle_id:
+            escaped = target_bundle_id.replace('"', '\\"')
+            script.extend(["-e", f'tell application id "{escaped}" to activate'])
+        script.extend([
+            "-e",
+            'tell application "System Events" to keystroke "v" using command down',
+        ])
         subprocess.run(
-            ["osascript", "-e", 'tell application "System Events" to keystroke "v" using command down'],
+            script,
             check=True,
             timeout=2.0,
             stderr=subprocess.DEVNULL,
         )
-        time.sleep(0.05)  # give app time to paste
+        time.sleep(0.08)  # let the re-activated target app process the paste
+
+    def _insert_via_ax(self, text: str) -> bool:
+        from whisperkey_mac.ax_detect import insert_text_at_cursor
+
+        return insert_text_at_cursor(text)
 
     def _tap(self, key: Key) -> None:
         self._kb.press(key)

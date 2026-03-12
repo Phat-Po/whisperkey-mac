@@ -54,6 +54,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "perm_add_python": "将 Python.app 添加到列表并打开开关",
         "perm_python_path_label": "Python.app 路径（通常为）：",
         "perm_restart_note": "授权后，运行 whisperkey 即可开始使用。",
+        "permissions_title": "权限设置",
+        "permissions_opened": "已打开输入监控和辅助功能设置页。",
+        "step_correct_title": "在线纠错（可选）",
+        "step_correct_prompt": "是否启用 OpenAI 在线纠错？需要你自己的 API key，并会产生 OpenAI 调用费用。",
+        "correct_enable": "启用在线纠错",
+        "correct_skip": "暂不启用",
+        "correct_key_now": "现在输入 OpenAI API key",
+        "correct_key_later": "稍后再配置",
+        "correct_key_prompt": "请输入 OpenAI API key（输入不会显示）：",
+        "correct_key_saved": "OpenAI API key 已保存到 macOS Keychain",
+        "correct_key_save_failed": "保存到 Keychain 失败，可稍后通过 OPENAI_API_KEY 使用",
+        "correct_key_missing_note": "未提供 API key；启用后若没有可用 key，会自动回退原始转录",
 
         "setup_done": "✅ 设置完成！",
         "setup_done_sub": "配置已保存到 ~/.config/whisperkey/config.json",
@@ -79,6 +91,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "no_speech": "未检测到语音",
         "injected": "已输入",
         "transcribe_error": "转录出错",
+        "online_corrected": "已应用在线纠错",
         "shutting_down": "正在关闭...",
 
         # ── Help ──────────────────────────────────────────────────────────────
@@ -100,6 +113,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "help_fix_model": "修复方法：运行 whisperkey setup 重新选择并下载模型",
         "help_fix_process": "修复方法：运行 whisperkey 启动程序",
         "help_audio_devices": "可用音频输入设备",
+        "help_correction_enabled": "已启用",
+        "help_correction_disabled": "已关闭",
+        "help_available": "可用",
+        "help_unavailable": "不可用",
 
         # ── General ───────────────────────────────────────────────────────────
         "yes": "是",
@@ -165,6 +182,18 @@ STRINGS: dict[str, dict[str, str]] = {
         "perm_add_python": "Add Python.app to the list and enable the toggle",
         "perm_python_path_label": "Python.app path (usually):",
         "perm_restart_note": "After granting permissions, run whisperkey to start.",
+        "permissions_title": "Permission Setup",
+        "permissions_opened": "Opened Input Monitoring and Accessibility settings.",
+        "step_correct_title": "Online Correction (Optional)",
+        "step_correct_prompt": "Enable OpenAI online correction? This uses your own API key and may incur OpenAI usage charges.",
+        "correct_enable": "Enable online correction",
+        "correct_skip": "Skip for now",
+        "correct_key_now": "Enter OpenAI API key now",
+        "correct_key_later": "I'll add it later",
+        "correct_key_prompt": "Enter your OpenAI API key (input hidden):",
+        "correct_key_saved": "OpenAI API key saved to macOS Keychain",
+        "correct_key_save_failed": "Failed to save to Keychain. You can use OPENAI_API_KEY later.",
+        "correct_key_missing_note": "No API key saved; correction will fall back to the raw transcript until a key is available.",
 
         "setup_done": "✅ Setup complete!",
         "setup_done_sub": "Config saved to ~/.config/whisperkey/config.json",
@@ -190,6 +219,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "no_speech": "No speech detected",
         "injected": "Injected via",
         "transcribe_error": "Transcription error",
+        "online_corrected": "Applied online correction",
         "shutting_down": "Shutting down...",
 
         # ── Help ──────────────────────────────────────────────────────────────
@@ -211,6 +241,10 @@ STRINGS: dict[str, dict[str, str]] = {
         "help_fix_model": "Fix: Run whisperkey setup to re-select and download model",
         "help_fix_process": "Fix: Run whisperkey to start the app",
         "help_audio_devices": "Available audio input devices",
+        "help_correction_enabled": "Enabled",
+        "help_correction_disabled": "Disabled",
+        "help_available": "Available",
+        "help_unavailable": "Unavailable",
 
         # ── General ───────────────────────────────────────────────────────────
         "yes": "Yes",

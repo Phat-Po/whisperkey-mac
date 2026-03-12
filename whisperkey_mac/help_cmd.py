@@ -6,6 +6,7 @@ from pathlib import Path
 
 from whisperkey_mac.config import load_config, CONFIG_PATH
 from whisperkey_mac.i18n import t
+from whisperkey_mac.keychain import load_openai_api_key
 
 try:
     from rich.console import Console
@@ -199,8 +200,17 @@ def run_help() -> None:
         print()
 
     # Current config summary
+    key_ok = load_openai_api_key() is not None
+    correction_state = t("help_correction_enabled", lang) if cfg.online_correct_enabled else t("help_correction_disabled", lang)
+    key_state = t("help_available", lang) if key_ok else t("help_unavailable", lang)
+
     print(f"  {'─'*48}")
     print(f"  Config: {CONFIG_PATH}")
     print(f"    model={cfg.model_size}  lang={cfg.transcribe_language}  ui={cfg.ui_language}")
     print(f"    hold_key={cfg.hold_key}  handsfree={'+'.join(cfg.handsfree_keys)}")
+    print(
+        f"    correction={correction_state}  provider={cfg.online_correct_provider}  "
+        f"model={cfg.online_correct_model}"
+    )
+    print(f"    openai_key={key_state}  result_max_lines={cfg.result_max_lines}")
     print()
