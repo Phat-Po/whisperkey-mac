@@ -36,6 +36,7 @@ def test_run_setup_starts_app_when_requested():
         unittest.mock.patch("whisperkey_mac.setup_wizard._step_permissions"),
         unittest.mock.patch("whisperkey_mac.setup_wizard._step_online_correction", return_value=False),
         unittest.mock.patch("whisperkey_mac.setup_wizard.save_config") as mock_save,
+        unittest.mock.patch("whisperkey_mac.launch_agent.LaunchAgentManager.is_loaded", return_value=False),
         unittest.mock.patch("whisperkey_mac.main.App") as mock_app,
     ):
         cfg = run_setup(start_after=True)
@@ -44,6 +45,25 @@ def test_run_setup_starts_app_when_requested():
     assert cfg.model_size == "small"
     mock_save.assert_called_once()
     mock_app.return_value.run.assert_called_once_with()
+
+
+def test_run_setup_restarts_launch_agent_instead_of_starting_duplicate_app():
+    with (
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_language", return_value="zh"),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_transcribe_language", return_value=("zh", "zh")),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_model", return_value="small"),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_hotkeys", return_value=("alt_r", ["cmd", "char:\\"])),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_permissions"),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_online_correction", return_value=False),
+        unittest.mock.patch("whisperkey_mac.setup_wizard.save_config"),
+        unittest.mock.patch("whisperkey_mac.launch_agent.LaunchAgentManager.is_loaded", return_value=True),
+        unittest.mock.patch("whisperkey_mac.launch_agent.LaunchAgentManager.restart") as mock_restart,
+        unittest.mock.patch("whisperkey_mac.main.App") as mock_app,
+    ):
+        run_setup(start_after=True)
+
+    mock_restart.assert_called_once_with()
+    mock_app.assert_not_called()
 
 
 def test_resolve_python_app_path_prefers_real_python_app():

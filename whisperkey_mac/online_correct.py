@@ -17,12 +17,13 @@ _CORRECTION_INSTRUCTIONS = (
 )
 
 
-def maybe_correct_online(text: str, config: AppConfig) -> str:
+def maybe_process_online(text: str, config: AppConfig) -> str:
     normalized = text.strip()
     if not normalized:
         return normalized
 
-    if not _should_correct_online(normalized, config):
+    mode = _prompt_mode(config)
+    if not _should_process_online(normalized, config, mode):
         return normalized
 
     api_key = load_openai_api_key()
@@ -34,6 +35,15 @@ def maybe_correct_online(text: str, config: AppConfig) -> str:
         return normalized
 
     try:
+        if mode == "custom":
+            response = client.responses.create(
+                model=config.online_correct_model,
+                instructions=config.online_prompt_custom_text.strip(),
+                input=normalized,
+                max_output_tokens=256,
+            )
+            return _extract_plain_text(getattr(response, "output_text", "")) or normalized
+
         response = client.responses.create(
             model=config.online_correct_model,
             instructions=_CORRECTION_INSTRUCTIONS,
@@ -48,11 +58,24 @@ def maybe_correct_online(text: str, config: AppConfig) -> str:
     return corrected or normalized
 
 
-def _should_correct_online(text: str, config: AppConfig) -> bool:
-    if not config.online_correct_enabled:
+def maybe_correct_online(text: str, config: AppConfig) -> str:
+    return maybe_process_online(text, config)
+
+
+def _prompt_mode(config: AppConfig) -> str:
+    mode = getattr(config, "online_prompt_mode", "")
+    if mode in {"disabled", "asr_correction", "custom"}:
+        return mode
+    return "asr_correction" if config.online_correct_enabled else "disabled"
+
+
+def _should_process_online(text: str, config: AppConfig, mode: str) -> bool:
+    if mode == "disabled":
         return False
     if config.online_correct_provider != "openai":
         return False
+    if mode == "custom":
+        return bool(config.online_prompt_custom_text.strip())
     if len(text) < config.online_correct_min_chars:
         return False
     if len(text) > config.online_correct_max_chars:
@@ -98,3 +121,8 @@ def _extract_corrected_text(output_text: str) -> str | None:
 
     corrected = corrected.strip()
     return corrected or None
+
+
+def _extract_plain_text(output_text: str) -> str | None:
+    normalized = output_text.strip()
+    return normalized or None

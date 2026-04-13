@@ -34,7 +34,12 @@ class TextOutput:
             self._paste_clipboard(target_bundle_id)
             return "applescript"
         except Exception:
-            pass
+            if target_bundle_id:
+                try:
+                    self._paste_clipboard(None)
+                    return "applescript"
+                except Exception:
+                    pass
 
         try:
             if self._insert_via_ax(normalized):

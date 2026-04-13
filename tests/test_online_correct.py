@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import unittest.mock
 
 from whisperkey_mac.config import AppConfig
-from whisperkey_mac.online_correct import maybe_correct_online
+from whisperkey_mac.online_correct import maybe_correct_online, maybe_process_online
 
 
 def _config(**kwargs):
@@ -12,6 +12,7 @@ def _config(**kwargs):
         "online_correct_enabled": True,
         "online_correct_provider": "openai",
         "online_correct_model": "gpt-5-mini",
+        "online_prompt_mode": "asr_correction",
         "online_correct_timeout_s": 2.0,
         "online_correct_min_chars": 6,
         "online_correct_max_chars": 120,
@@ -68,3 +69,20 @@ def test_online_correction_falls_back_on_invalid_json():
         result = maybe_correct_online("今天下午三点开灰", cfg)
 
     assert result == "今天下午三点开灰"
+
+
+def test_custom_prompt_mode_returns_plain_text_output():
+    cfg = _config(
+        online_prompt_mode="custom",
+        online_prompt_custom_text="Translate to English.",
+    )
+    fake_client = unittest.mock.MagicMock()
+    fake_client.responses.create.return_value = SimpleNamespace(output_text="hello world")
+
+    with (
+        unittest.mock.patch("whisperkey_mac.online_correct.load_openai_api_key", return_value="sk-test"),
+        unittest.mock.patch("whisperkey_mac.online_correct._build_openai_client", return_value=fake_client),
+    ):
+        result = maybe_process_online("你好世界", cfg)
+
+    assert result == "hello world"

@@ -104,3 +104,21 @@ def test_inject_tries_ax_after_applescript_failure():
 
     assert result == "inserted"
     mock_insert.assert_called_once_with("hello")
+
+
+def test_inject_retries_frontmost_paste_after_targeted_applescript_failure():
+    output = TextOutput(AppConfig())
+
+    with (
+        unittest.mock.patch("whisperkey_mac.output.pyperclip.copy"),
+        unittest.mock.patch.object(output, "_paste_clipboard", side_effect=[RuntimeError("activate failed"), None]) as mock_paste,
+        unittest.mock.patch.object(output, "_insert_via_ax") as mock_insert,
+    ):
+        result = output.inject("hello", target_bundle_id="com.tencent.xinWeChat")
+
+    assert result == "applescript"
+    assert mock_paste.call_args_list == [
+        unittest.mock.call("com.tencent.xinWeChat"),
+        unittest.mock.call(None),
+    ]
+    mock_insert.assert_not_called()

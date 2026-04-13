@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import threading
 from pathlib import Path
 
@@ -54,3 +55,8 @@ class Transcriber:
                 compute_type=self._config.compute_type,
             )
             print("[whisperkey] Model ready.")
+
+    def unload(self) -> None:
+        with self._lock:
+            self._model = None
+        gc.collect()

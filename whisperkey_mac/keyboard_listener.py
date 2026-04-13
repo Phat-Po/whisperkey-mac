@@ -7,6 +7,7 @@ from pynput import keyboard
 
 # Minimum hold duration before recording starts (avoids accidental taps)
 MIN_HOLD_S = 0.15
+HOLD_CONFLICT_GRACE_S = 0.35
 
 # Map config string names → pynput Key objects
 _KEY_MAP: dict[str, keyboard.Key] = {
@@ -31,14 +32,18 @@ _KEY_MAP: dict[str, keyboard.Key] = {
 }
 
 
-def key_name_to_pynput(name: str) -> keyboard.Key | None:
+def key_name_to_pynput(name: str) -> keyboard.Key | keyboard.KeyCode | None:
+    if name.startswith("char:") and len(name) > 5:
+        return keyboard.KeyCode.from_char(name[5:])
     return _KEY_MAP.get(name)
 
 
-def pynput_key_to_name(key: keyboard.Key) -> str | None:
+def pynput_key_to_name(key: keyboard.Key | keyboard.KeyCode) -> str | None:
     for name, k in _KEY_MAP.items():
         if k == key:
             return name
+    if isinstance(key, keyboard.KeyCode) and key.char:
+        return f"char:{key.char}"
     return None
 
 
@@ -64,10 +69,11 @@ class HotkeyListener:
         on_enter: Callable[[], None],
     ) -> None:
         self._hold_pkey = key_name_to_pynput(hold_key) or keyboard.Key.alt_r
-        self._handsfree_pkeys: list[keyboard.Key] = [
+        self._handsfree_pkeys: list[keyboard.Key | keyboard.KeyCode] = [
             k for name in handsfree_keys
             if (k := key_name_to_pynput(name)) is not None
         ]
+        self._hold_conflicts_with_handsfree = self._hold_pkey in self._handsfree_pkeys
 
         self._on_record_start = on_record_start
         self._on_record_stop_transcribe = on_record_stop_transcribe
@@ -91,6 +97,7 @@ class HotkeyListener:
         self._listener.start()
 
     def stop(self) -> None:
+        listener = None
         if self._hold_timer:
             self._hold_timer.cancel()
             self._hold_timer = None
@@ -100,8 +107,14 @@ class HotkeyListener:
             self._handsfree_stop_pending = False
             self._mode = "idle"
         if self._listener is not None:
-            self._listener.stop()
+            listener = self._listener
             self._listener = None
+        if listener is not None:
+            listener.stop()
+            try:
+                listener.join(timeout=1.0)
+            except Exception:
+                pass
 
     # ── internal ──────────────────────────────────────────────────────────────
 
@@ -149,8 +162,9 @@ class HotkeyListener:
                 mode = self._mode
                 if mode == "idle":
                     self._hold_press_time = time.monotonic()
-                    # Schedule recording start after MIN_HOLD_S
-                    timer = threading.Timer(MIN_HOLD_S, self._start_hold_recording)
+                    # Give a conflicting hands-free combo time to arrive before hold mode starts.
+                    delay = HOLD_CONFLICT_GRACE_S if self._hold_conflicts_with_handsfree else MIN_HOLD_S
+                    timer = threading.Timer(delay, self._start_hold_recording)
                     self._hold_timer = timer
             if mode == "idle":
                 timer.start()

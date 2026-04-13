@@ -255,9 +255,27 @@ def _step_hotkeys(lang: str) -> tuple[str, list[str]]:
     if choice == 1:
         return "alt_r", ["alt_r", "cmd_r"]
 
-    # Custom hotkeys
-    hold_key = _detect_single_key(lang, t("hotkey_press_hold", lang))
-    handsfree_keys = _detect_combo_keys(lang, t("hotkey_press_handsfree", lang))
+    hold_choice = _ask(
+        t("hotkey_hold_label", lang),
+        [t("hotkey_use_default", lang), t("hotkey_customize", lang)],
+        lang,
+    )
+    hold_key = (
+        "alt_r"
+        if hold_choice == 1
+        else _detect_single_key(lang, t("hotkey_press_hold", lang))
+    )
+
+    handsfree_choice = _ask(
+        t("hotkey_handsfree_label", lang),
+        [t("hotkey_use_default", lang), t("hotkey_customize", lang)],
+        lang,
+    )
+    handsfree_keys = (
+        ["alt_r", "cmd_r"]
+        if handsfree_choice == 1
+        else _detect_combo_keys(lang, t("hotkey_press_handsfree", lang))
+    )
     return hold_key, handsfree_keys
 
 
@@ -267,22 +285,37 @@ def _detect_single_key(lang: str, prompt: str) -> str:
 
     print(f"\n  {prompt}")
     detected: list = []
+    seen: set[str] = set()
     event = threading.Event()
+    deadline: float | None = None
 
     def on_press(key: kb.Key | kb.KeyCode | None) -> None:
+        nonlocal deadline
         if key is not None:
-            name = pynput_key_to_name(key) if isinstance(key, kb.Key) else None
-            if name:
+            name = pynput_key_to_name(key)
+            if name and name not in seen:
+                seen.add(name)
                 detected.append(name)
-                event.set()
+                deadline = time.monotonic() + 0.25
 
     listener = kb.Listener(on_press=on_press)
     listener.start()
-    event.wait(timeout=15)
+    start = time.monotonic()
+    while time.monotonic() - start < 15:
+        if event.is_set():
+            break
+        if deadline is not None and time.monotonic() >= deadline:
+            event.set()
+            break
+        time.sleep(0.01)
     listener.stop()
 
     if not detected:
         print(f"  (Timeout — using default: alt_r)")
+        return "alt_r"
+
+    if len(detected) > 1:
+        print(f"  Detected combo {' + '.join(detected)} for a single-key field; using default: alt_r")
         return "alt_r"
 
     name = detected[0]
@@ -291,18 +324,26 @@ def _detect_single_key(lang: str, prompt: str) -> str:
 
 
 def _detect_combo_keys(lang: str, prompt: str) -> list[str]:
-    """Wait for a key combo (up to 2 keys held simultaneously), return names."""
+    """Wait for a key combo or macro sequence, return names."""
     from pynput import keyboard as kb
 
     print(f"\n  {prompt}")
     held: set = set()
     max_combo: list = []
     event = threading.Event()
+    seen: list[str] = []
+    seen_names: set[str] = set()
+    deadline: float | None = None
 
     def on_press(key: kb.Key | kb.KeyCode | None) -> None:
+        nonlocal deadline
         if key is not None:
-            name = pynput_key_to_name(key) if isinstance(key, kb.Key) else None
+            name = pynput_key_to_name(key)
             if name:
+                if name not in seen_names:
+                    seen_names.add(name)
+                    seen.append(name)
+                deadline = time.monotonic() + 0.35
                 held.add(name)
                 if len(held) > len(max_combo):
                     max_combo.clear()
@@ -312,7 +353,7 @@ def _detect_combo_keys(lang: str, prompt: str) -> list[str]:
 
     def on_release(key: kb.Key | kb.KeyCode | None) -> None:
         if key is not None:
-            name = pynput_key_to_name(key) if isinstance(key, kb.Key) else None
+            name = pynput_key_to_name(key)
             if name:
                 held.discard(name)
                 if not held and max_combo:
@@ -320,15 +361,23 @@ def _detect_combo_keys(lang: str, prompt: str) -> list[str]:
 
     listener = kb.Listener(on_press=on_press, on_release=on_release)
     listener.start()
-    event.wait(timeout=15)
+    start = time.monotonic()
+    while time.monotonic() - start < 15:
+        if event.is_set():
+            break
+        if len(seen) >= 2 and deadline is not None and time.monotonic() >= deadline:
+            event.set()
+            break
+        time.sleep(0.01)
     listener.stop()
 
-    if not max_combo:
+    combo = seen if len(seen) >= 2 else max_combo
+    if not combo:
         print(f"  (Timeout — using default: alt_r + cmd_r)")
         return ["alt_r", "cmd_r"]
 
-    print(f"  {t('hotkey_detected', lang)} {' + '.join(max_combo)}")
-    return max_combo
+    print(f"  {t('hotkey_detected', lang)} {' + '.join(combo)}")
+    return combo
 
 
 def _step_permissions(lang: str) -> None:
@@ -425,11 +474,17 @@ def run_setup(start_after: bool = True) -> AppConfig:
     print()
 
     if start_after:
-        print(f"  {t('setup_starting', lang)}")
-        print()
-        from whisperkey_mac.main import App
+        from whisperkey_mac.launch_agent import LaunchAgentManager
 
-        App().run()
+        launch_agent = LaunchAgentManager()
+        if launch_agent.is_loaded():
+            launch_agent.restart()
+        else:
+            print(f"  {t('setup_starting', lang)}")
+            print()
+            from whisperkey_mac.main import App
+
+            App().run()
 
     return cfg
 

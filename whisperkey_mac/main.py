@@ -1,70 +1,39 @@
 from __future__ import annotations
 
 import sys
-import threading
+import tempfile
+from pathlib import Path
 
-from whisperkey_mac.audio import AudioRecorder
-from whisperkey_mac.config import load_config, config_exists
-from whisperkey_mac.keyboard_listener import HotkeyListener
-from whisperkey_mac.i18n import t
-from whisperkey_mac.output import TextOutput
-from whisperkey_mac.transcriber import Transcriber
-
-_AUTOPASTE_BLOCKED_BUNDLE_IDS = {"com.apple.finder"}
-_AUTOPASTE_ALLOWLIST_BUNDLE_IDS = {"com.openai.codex"}
+from whisperkey_mac.config import AppConfig, config_exists, load_config, save_config
+from whisperkey_mac.launch_agent import LaunchAgentManager
+from whisperkey_mac.service_controller import ServiceController
+from whisperkey_mac.keychain import save_openai_api_key
 
 
 class App:
     def __init__(self) -> None:
         self._config = load_config()
-        self._recorder = AudioRecorder(self._config)
-        self._transcriber = Transcriber(self._config)
-        self._output = TextOutput(self._config)
-        self._transcribe_lock = threading.Lock()
-        self._record_target_bundle_id: str | None = None
-
-        cfg = self._config
-        self._hotkey = HotkeyListener(
-            hold_key=cfg.hold_key,
-            handsfree_keys=cfg.handsfree_keys,
-            on_record_start=self._start_recording,
-            on_record_stop_transcribe=self._stop_and_transcribe,
-            on_enter=self._on_enter,
-        )
+        self._service = ServiceController(self._config)
+        self._launch_agent = LaunchAgentManager()
+        self._lock_file = None
 
     def run(self) -> None:
+        if not self._acquire_single_instance_lock():
+            print("[whisperkey] Another WhisperKey instance is already running; exiting.")
+            return
+
         cfg = self._config
-        lang = cfg.ui_language
-        _ = lambda k: t(k, lang)
-
-        print(f"[whisperkey] {_('starting')}")
-        threading.Thread(target=self._transcriber._ensure_loaded, daemon=True).start()
-
-        # Build hotkey display
-        hk_hold = cfg.hold_key
-        hk_hf = " + ".join(cfg.handsfree_keys)
-
-        # Set up NSApp BEFORE starting threads or importing AppKit elsewhere.
-        # AppKit imports are confined to overlay.py to prevent activation policy side effects.
         import signal as _signal
         from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
         from PyObjCTools.AppHelper import callLater
-        from whisperkey_mac.overlay import OverlayPanel
+        from whisperkey_mac.menu_bar import build_menu_bar_controller
+        from whisperkey_mac.i18n import t
 
         app = NSApplication.sharedApplication()
-        # CRITICAL: setActivationPolicy_ BEFORE .run() — policy is committed at run() time.
         app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
 
-        # Signal handling via callLater polling timer.
-        #
-        # Why not MachSignals / try/except KeyboardInterrupt:
-        # NSApp.run() blocks Python's bytecode interpreter in C — Python's signal flag
-        # is set when Ctrl+C arrives but is never checked (no bytecodes execute).
-        # MachSignals similarly can't fire because it relies on the same mechanism.
-        #
-        # Solution: callLater fires a Python callback every 200 ms *inside* the run loop.
-        # Those callbacks execute Python bytecode, so Python's pending signals ARE checked
-        # there. signal.signal() also prevents SIG_DFL from killing the process immediately.
+        lang = cfg.ui_language
+        _ = lambda k: t(k, lang)
         _sig_name_holder: list[str] = []
 
         def _handle_signal(signum: int, _frame: object) -> None:
@@ -85,163 +54,64 @@ class App:
                 callLater(0.2, _check_quit)
 
         callLater(0.2, _check_quit)
-
-        self._hotkey.start()
-
         print(
             f"[whisperkey] {_('ready')}\n"
             f"  {_('model_label')}: {cfg.model_size} ({cfg.compute_type} on {cfg.device})\n"
             f"  {_('language_label')}: {cfg.transcribe_language if cfg.transcribe_language != 'auto' else _('auto_detect')}\n"
-            f"  {hk_hold:<20} -> {_('hold_record')} / {_('release_transcribe')}\n"
-            f"  {hk_hf:<20} -> {_('handsfree_start')} / {_('handsfree_stop')}\n"
+            f"  {'menu bar':<20} -> native shell active\n"
             f"  {_('quit_hint')}\n"
         )
 
-        # Phase 1: create invisible overlay. Phase 2 wires it to state machine.
-        self._overlay = OverlayPanel.create(cfg.result_max_lines)
+        self._service.ensure_overlay()
+        self._service.start_service()
+        self._menu_bar = build_menu_bar_controller(
+            self._service,
+            self._launch_agent,
+            open_settings=self.open_settings,
+        )
 
-        # Block on Cocoa run loop. Returns when _check_quit calls terminate_().
         app.run()
 
-        # Cleanup after run loop exits
         sig_name = _sig_name_holder[0] if _sig_name_holder else "SIGTERM"
         print(f"\n[whisperkey] {_('shutting_down')} ({sig_name})")
-        self._hotkey.stop()
-        self._recorder.cancel()
+        self._service.shutdown()
 
-    # ── callbacks ──────────────────────────────────────────────────────────────
+    def _acquire_single_instance_lock(self) -> bool:
+        import fcntl
 
-    def _on_enter(self) -> None:
-        self._output.send_enter()
-
-    # ── internals ──────────────────────────────────────────────────────────────
-
-    def _start_recording(self) -> None:
-        if not hasattr(self, '_overlay'):
-            return  # safety guard before overlay is initialized
-        self._record_target_bundle_id = self._frontmost_bundle_id()
-        from whisperkey_mac.overlay import dispatch_to_main
-        dispatch_to_main(self._overlay.show_recording)
-        self._recorder.start()
-
-    def _hide_overlay_after_cancel(self, dismiss_duration_s: float = 0.15) -> None:
-        if not hasattr(self, '_overlay'):
-            return
-        from whisperkey_mac.overlay import dispatch_to_main
-        dispatch_to_main(self._overlay.hide_after_paste, dismiss_duration_s)
-
-    def _frontmost_bundle_id(self) -> str | None:
+        lock_path = Path(tempfile.gettempdir()) / "whisperkey.lock"
+        lock_file = lock_path.open("w")
         try:
-            from AppKit import NSWorkspace
-
-            app = NSWorkspace.sharedWorkspace().frontmostApplication()
-            if app is None:
-                return None
-            bundle_id = app.bundleIdentifier()
-            return str(bundle_id) if bundle_id else None
-        except Exception:
-            return None
-
-    def _should_attempt_direct_paste(self) -> bool:
-        from whisperkey_mac.ax_detect import is_cursor_in_text_field
-
-        bundle_id = self._frontmost_bundle_id()
-        if bundle_id is None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            lock_file.close()
             return False
-        if bundle_id in _AUTOPASTE_BLOCKED_BUNDLE_IDS:
-            return False
-
-        if is_cursor_in_text_field():
-            return True
-
-        if bundle_id in _AUTOPASTE_ALLOWLIST_BUNDLE_IDS:
-            return True
-
-        # Some Electron/Web chat inputs don't expose AXEditable/role cleanly.
-        # For normal apps we still attempt active-app injection and let output.py
-        # fall back to clipboard if both paste paths fail.
-        print(f"[whisperkey] AX text-field detection missed bundle={bundle_id}; trying direct inject anyway.")
+        lock_file.write(str(__import__("os").getpid()))
+        lock_file.truncate()
+        lock_file.flush()
+        self._lock_file = lock_file
         return True
 
-    def _stop_and_transcribe(self) -> None:
-        if not hasattr(self, '_overlay'):
-            return  # safety guard before overlay is initialized
-        recording = self._recorder.stop_and_save()
-        target_bundle_id = self._record_target_bundle_id
-        self._record_target_bundle_id = None
-        cfg = self._config
-        lang = cfg.ui_language
+    def open_settings(self) -> None:
+        from whisperkey_mac.settings_window import build_settings_window_controller
 
-        if recording is None:
-            print(f"[whisperkey] {t('recording_too_short', lang)}")
-            self._hide_overlay_after_cancel()
-            return
+        self._settings_window = build_settings_window_controller(
+            self._service.config,
+            launch_at_login_enabled=self._launch_agent.is_enabled(),
+            on_save=self._save_settings,
+        )
+        self._settings_window.show()
 
-        from whisperkey_mac.overlay import dispatch_to_main
-        dispatch_to_main(self._overlay.show_transcribing)
-
-        print(f"[whisperkey] {t('transcribing', lang)} {recording.duration_s:.1f}s...")
-
-        threading.Thread(
-            target=self._transcribe_and_inject,
-            args=(recording, target_bundle_id),
-            daemon=True,
-        ).start()
-
-    def _transcribe_and_inject(self, recording, target_bundle_id: str | None = None) -> None:
-        cfg = self._config
-        lang = cfg.ui_language
-
-        with self._transcribe_lock:
-            try:
-                text = self._transcriber.transcribe(recording.path)
-            except Exception as exc:
-                print(f"[whisperkey] {t('transcribe_error', lang)}: {exc}")
-                self._hide_overlay_after_cancel()
-                return
-            finally:
-                try:
-                    recording.path.unlink(missing_ok=True)
-                except Exception:
-                    pass
-
-            if not text:
-                print(f"[whisperkey] {t('no_speech', lang)}")
-                self._hide_overlay_after_cancel()
-                return
-
-            from whisperkey_mac.online_correct import maybe_correct_online
-
-            final_text = maybe_correct_online(text, cfg)
-            if final_text != text:
-                print(f"[whisperkey] {t('online_corrected', lang)}")
-
-            if not hasattr(self, '_overlay'):
-                # Fallback: behave as before Phase 2 (always inject)
-                self._output.inject(final_text, target_bundle_id=target_bundle_id)
-                return
-
-            from whisperkey_mac.overlay import dispatch_to_main
-
-            print(f"[whisperkey] → {final_text!r}")
-
-            in_text_field = self._should_attempt_direct_paste()
-
-            if in_text_field:
-                # Input field: auto-paste, but still surface the transcribed result briefly.
-                result = self._output.inject(final_text, target_bundle_id=target_bundle_id)
-                print(f"[whisperkey] {t('injected', lang)} {result}.")
-                print(f"[whisperkey] inject_path={result}")
-                if result in {"inserted", "applescript"}:
-                    dispatch_to_main(self._overlay.show_result, final_text, "已输入", 1.2, 0.25)
-                else:
-                    dispatch_to_main(self._overlay.show_result, final_text, "已复制到剪贴板", 3.0, 0.4)
-            else:
-                # Non-text context: only copy to clipboard. Never attempt paste here.
-                import pyperclip
-                pyperclip.copy(final_text)  # text goes to clipboard; no paste attempt
-                print(f"[whisperkey] {t('injected', lang)} clipboard.")
-                dispatch_to_main(self._overlay.show_result, final_text, "已复制到剪贴板", 3.0, 0.4)
+    def _save_settings(self, config: AppConfig, api_key: str | None, launch_enabled: bool) -> None:
+        config.launch_at_login = launch_enabled
+        save_config(config)
+        if api_key:
+            save_openai_api_key(api_key)
+        if launch_enabled:
+            self._launch_agent.enable(model_size=config.model_size)
+        else:
+            self._launch_agent.disable(remove_file=False)
+        self._service.apply_config(config)
 
 
 def detect() -> None:
@@ -294,7 +164,6 @@ def main() -> None:
             return
         else:
             # Running as background service without config — save defaults silently
-            from whisperkey_mac.config import AppConfig, save_config
             save_config(AppConfig())
             print("[whisperkey] No config found, using defaults. Run 'whisperkey setup' in Terminal to configure.")
 

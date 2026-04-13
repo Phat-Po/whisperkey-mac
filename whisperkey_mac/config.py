@@ -46,10 +46,13 @@ class AppConfig:
     online_correct_enabled: bool = False
     online_correct_provider: str = "openai"
     online_correct_model: str = "gpt-5-mini"
+    online_prompt_mode: str = "disabled"
+    online_prompt_custom_text: str = ""
     online_correct_timeout_s: float = 2.0
     online_correct_min_chars: int = 6
     online_correct_max_chars: int = 120
     online_correct_min_cjk_ratio: float = 0.35
+    launch_at_login: bool = False
 
     # ── Legacy ────────────────────────────────────────────────────────────────
     record_button: str = "x1"
@@ -107,17 +110,31 @@ def load_config() -> AppConfig:
         cfg.result_max_lines = max(1, int(v))
     if v := os.getenv("WHISPERKEY_ONLINE_CORRECT"):
         cfg.online_correct_enabled = v.strip().lower() in {"1", "true", "yes", "on"}
+        cfg.online_prompt_mode = "asr_correction" if cfg.online_correct_enabled else "disabled"
     if v := os.getenv("WHISPERKEY_ONLINE_CORRECT_MODEL"):
         cfg.online_correct_model = v.strip()
+    if v := os.getenv("WHISPERKEY_ONLINE_PROMPT_MODE"):
+        cfg.online_prompt_mode = v.strip()
 
     # Sync transcribe_language → Whisper language param (if not set by env var)
     if cfg.language is None and cfg.transcribe_language != "auto":
         cfg.language = _transcribe_language_to_whisper(cfg.transcribe_language)
 
+    if cfg.online_prompt_mode not in {"disabled", "asr_correction", "custom"}:
+        cfg.online_prompt_mode = "asr_correction" if cfg.online_correct_enabled else "disabled"
+
+    if cfg.online_prompt_mode == "disabled" and cfg.online_correct_enabled:
+        cfg.online_prompt_mode = "asr_correction"
+    elif cfg.online_prompt_mode != "disabled" and not cfg.online_correct_enabled:
+        cfg.online_correct_enabled = True
+
+    cfg.online_correct_enabled = cfg.online_prompt_mode != "disabled"
+
     return cfg
 
 
 def save_config(cfg: AppConfig) -> None:
+    cfg.online_correct_enabled = cfg.online_prompt_mode != "disabled"
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(cfg.to_dict(), indent=2, ensure_ascii=False))
 
