@@ -88,16 +88,38 @@ class HotkeyListener:
         self._handsfree_stop_pending = False
 
         self._listener: keyboard.Listener | None = None
+        self._paused: bool = True  # start paused; activated by start()
+
+    def update_keys(self, hold_key: str, handsfree_keys: list[str]) -> None:
+        """Update key bindings in-place without stopping the listener."""
+        with self._lock:
+            self._hold_pkey = key_name_to_pynput(hold_key) or keyboard.Key.alt_r
+            self._handsfree_pkeys = [
+                k for name in handsfree_keys
+                if (k := key_name_to_pynput(name)) is not None
+            ]
+            self._hold_conflicts_with_handsfree = self._hold_pkey in self._handsfree_pkeys
+            self._held_keys.clear()
+            self._handsfree_combo_active = False
+            self._handsfree_stop_pending = False
+            self._mode = "idle"
+        if self._hold_timer:
+            self._hold_timer.cancel()
+            self._hold_timer = None
 
     def start(self) -> None:
-        self._listener = keyboard.Listener(
-            on_press=self._on_press,
-            on_release=self._on_release,
-        )
-        self._listener.start()
+        """Unpause the listener. Creates the CGEventTap once on first call."""
+        if self._listener is None:
+            self._listener = keyboard.Listener(
+                on_press=self._on_press,
+                on_release=self._on_release,
+            )
+            self._listener.start()
+        self._paused = False
 
     def stop(self) -> None:
-        listener = None
+        """Pause the listener without destroying the CGEventTap."""
+        self._paused = True
         if self._hold_timer:
             self._hold_timer.cancel()
             self._hold_timer = None
@@ -106,20 +128,11 @@ class HotkeyListener:
             self._handsfree_combo_active = False
             self._handsfree_stop_pending = False
             self._mode = "idle"
-        if self._listener is not None:
-            listener = self._listener
-            self._listener = None
-        if listener is not None:
-            listener.stop()
-            try:
-                listener.join(timeout=1.0)
-            except Exception:
-                pass
 
     # ── internal ──────────────────────────────────────────────────────────────
 
     def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
-        if key is None:
+        if self._paused or key is None:
             return
 
         should_start_handsfree = False
@@ -170,7 +183,7 @@ class HotkeyListener:
                 timer.start()
 
     def _on_release(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
-        if key is None:
+        if self._paused or key is None:
             return
 
         should_stop_handsfree = False

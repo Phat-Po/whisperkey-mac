@@ -59,29 +59,29 @@ class ServiceController:
         self._status_callbacks.append(callback)
 
     def apply_config(self, config: AppConfig) -> None:
+        model_changed = (
+            config.model_size != self._config.model_size
+            or config.device != self._config.device
+            or config.compute_type != self._config.compute_type
+        )
+
         was_running = self._service_running
-        if was_running:
+        if model_changed and was_running:
             self.stop_service()
 
         self._config = config
         self._recorder = AudioRecorder(self._config)
-        self._transcriber = Transcriber(self._config)
+        if model_changed:
+            self._transcriber.unload()
+            self._transcriber = Transcriber(self._config)
+        else:
+            self._transcriber._config = config
         self._output = TextOutput(self._config)
-        self._overlay = None
         self._record_target_bundle_id = None
 
+        # Update key bindings in-place — never stop/recreate the pynput listener
         cfg = self._config
-        self._hotkey = HotkeyListener(
-            hold_key=cfg.hold_key,
-            handsfree_keys=cfg.handsfree_keys,
-            on_record_start=self._start_recording,
-            on_record_stop_transcribe=self._stop_and_transcribe,
-            on_enter=self._on_enter,
-        )
-
-        if was_running:
-            self.start_service()
-
+        self._hotkey.update_keys(cfg.hold_key, cfg.handsfree_keys)
         self._notify_status_changed()
 
     def ensure_overlay(self) -> None:

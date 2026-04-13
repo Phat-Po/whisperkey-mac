@@ -99,7 +99,8 @@ def maybe_process_online(text: str, config: AppConfig) -> str:
         corrected = _extract_corrected_text(getattr(response, "output_text", ""))
         return corrected or normalized
 
-    except Exception:
+    except Exception as exc:
+        print(f"[whisperkey] online_correct error: {exc}")
         return normalized
 
 
