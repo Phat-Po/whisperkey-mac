@@ -48,10 +48,11 @@ class AppConfig:
     online_correct_model: str = "gpt-5-mini"
     online_prompt_mode: str = "disabled"
     online_prompt_custom_text: str = ""
-    online_correct_timeout_s: float = 2.0
+    online_correct_timeout_s: float = 8.0
     online_correct_min_chars: int = 6
     online_correct_max_chars: int = 120
     online_correct_min_cjk_ratio: float = 0.35
+    word_replacements: dict = field(default_factory=dict)
     launch_at_login: bool = False
 
     # ── Legacy ────────────────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ def load_config() -> AppConfig:
     if cfg.language is None and cfg.transcribe_language != "auto":
         cfg.language = _transcribe_language_to_whisper(cfg.transcribe_language)
 
-    if cfg.online_prompt_mode not in {"disabled", "asr_correction", "custom"}:
+    if cfg.online_prompt_mode not in {"disabled", "asr_correction", "custom", "voice_cleanup"}:
         cfg.online_prompt_mode = "asr_correction" if cfg.online_correct_enabled else "disabled"
 
     if cfg.online_prompt_mode == "disabled" and cfg.online_correct_enabled:

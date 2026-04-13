@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import re as _re
 import threading
 from typing import Callable
 
@@ -10,6 +11,16 @@ from whisperkey_mac.i18n import t
 from whisperkey_mac.keyboard_listener import HotkeyListener
 from whisperkey_mac.output import TextOutput
 from whisperkey_mac.transcriber import Transcriber
+
+def _apply_word_replacements(text: str, replacements: dict) -> str:
+    """Case-insensitive word/phrase replacement. Longer sources matched first."""
+    if not replacements:
+        return text
+    for src, dst in sorted(replacements.items(), key=lambda x: -len(x[0])):
+        if src:
+            text = _re.sub(_re.escape(src), dst, text, flags=_re.IGNORECASE)
+    return text
+
 
 _AUTOPASTE_BLOCKED_BUNDLE_IDS = {"com.apple.finder"}
 _AUTOPASTE_ALLOWLIST_BUNDLE_IDS = {"com.openai.codex", "com.tencent.xinWeChat"}
@@ -216,10 +227,14 @@ class ServiceController:
                 self._hide_overlay_after_cancel()
                 return
 
+            word_fixed = _apply_word_replacements(text, getattr(cfg, "word_replacements", {}))
+            if word_fixed != text:
+                print(f"[whisperkey] word replacements applied")
+
             from whisperkey_mac.online_correct import maybe_correct_online
 
-            final_text = maybe_correct_online(text, cfg)
-            if final_text != text:
+            final_text = maybe_correct_online(word_fixed, cfg)
+            if final_text != word_fixed:
                 print(f"[whisperkey] {t('online_corrected', lang)}")
 
             if not hasattr(self, "_overlay") or self._overlay is None:
