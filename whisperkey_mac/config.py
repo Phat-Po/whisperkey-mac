@@ -21,6 +21,8 @@ class AppConfig:
     language: str | None = None
     # Human-readable label stored in config: "auto" | "zh" | "en" | ISO code
     transcribe_language: str = "auto"
+    # Output language after online processing: "auto" = match input, "zh", "en"
+    output_language: str = "auto"
 
     # ── Whisper model ─────────────────────────────────────────────────────────
     model_size: str = "small"

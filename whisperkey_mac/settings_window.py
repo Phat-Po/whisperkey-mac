@@ -24,7 +24,7 @@ from AppKit import (
 )
 from Foundation import NSObject
 
-from whisperkey_mac.config import AppConfig
+from whisperkey_mac.config import AppConfig, _transcribe_language_to_whisper
 
 
 # ── Options ───────────────────────────────────────────────────────────────────
@@ -38,6 +38,18 @@ PROMPT_MODE_OPTIONS = [
 LANGUAGE_OPTIONS = [
     ("en", "English"),
     ("zh", "中文"),
+]
+
+TRANSCRIBE_LANGUAGE_OPTIONS = [
+    ("auto", "Auto Detect"),
+    ("zh", "Chinese (中文)"),
+    ("en", "English"),
+]
+
+OUTPUT_LANGUAGE_OPTIONS = [
+    ("auto", "Match Input"),
+    ("zh", "Chinese (中文)"),
+    ("en", "English"),
 ]
 
 MODEL_OPTIONS = ["base", "small", "large-v3-turbo"]
@@ -158,6 +170,20 @@ class SettingsWindowController(NSObject):
         self._lang_popup.selectItemWithTitle_(sel)
         y -= 44
 
+        self._lbl(view, "Transcription Language", 20, y)
+        self._transcribe_lang_popup = self._popup(view, 190, y - 4, 160)
+        self._transcribe_lang_popup.addItemsWithTitles_([t for _, t in TRANSCRIBE_LANGUAGE_OPTIONS])
+        sel = next((t for v, t in TRANSCRIBE_LANGUAGE_OPTIONS if v == self._config.transcribe_language), "Auto Detect")
+        self._transcribe_lang_popup.selectItemWithTitle_(sel)
+        y -= 44
+
+        self._lbl(view, "Output Language", 20, y)
+        self._output_lang_popup = self._popup(view, 190, y - 4, 160)
+        self._output_lang_popup.addItemsWithTitles_([t for _, t in OUTPUT_LANGUAGE_OPTIONS])
+        sel = next((t for v, t in OUTPUT_LANGUAGE_OPTIONS if v == getattr(self._config, "output_language", "auto")), "Match Input")
+        self._output_lang_popup.selectItemWithTitle_(sel)
+        y -= 44
+
         self._lbl(view, "Whisper Model", 20, y)
         self._model_popup = self._popup(view, 190, y - 4, 160)
         self._model_popup.addItemsWithTitles_(MODEL_OPTIONS)
@@ -264,6 +290,12 @@ class SettingsWindowController(NSObject):
         lang_title = self._lang_popup.titleOfSelectedItem()
         lang = next((v for v, t in LANGUAGE_OPTIONS if t == lang_title), "en")
 
+        transcribe_lang_title = self._transcribe_lang_popup.titleOfSelectedItem()
+        transcribe_lang = next((v for v, t in TRANSCRIBE_LANGUAGE_OPTIONS if t == transcribe_lang_title), "auto")
+
+        output_lang_title = self._output_lang_popup.titleOfSelectedItem()
+        output_lang = next((v for v, t in OUTPUT_LANGUAGE_OPTIONS if t == output_lang_title), "auto")
+
         word_replacements = parse_word_replacements(str(self._word_fix_view.string()))
 
         try:
@@ -274,6 +306,9 @@ class SettingsWindowController(NSObject):
         updated = replace(
             self._config,
             ui_language=lang,
+            transcribe_language=transcribe_lang,
+            language=_transcribe_language_to_whisper(transcribe_lang),
+            output_language=output_lang,
             model_size=str(self._model_popup.titleOfSelectedItem()),
             hold_key=str(self._hold_key_field.stringValue()).strip() or self._config.hold_key,
             handsfree_keys=(

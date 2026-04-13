@@ -23,7 +23,7 @@ def _apply_word_replacements(text: str, replacements: dict) -> str:
 
 
 _AUTOPASTE_BLOCKED_BUNDLE_IDS = {"com.apple.finder"}
-_AUTOPASTE_ALLOWLIST_BUNDLE_IDS = {"com.openai.codex", "com.tencent.xinWeChat"}
+_AUTOPASTE_ALLOWLIST_BUNDLE_IDS = {"com.openai.codex", "com.tencent.xinWeChat", "com.superset.desktop"}
 
 
 class ServiceController:

@@ -17,7 +17,7 @@ _CORRECTION_INSTRUCTIONS = (
     "Do not translate. Do not rewrite style. Do not expand the content."
 )
 
-_VOICE_CLEANUP_PROMPT = """你是一位語音輸入文字清理專家。用戶會貼入語音轉文字的原始逐字稿，你的任務是輸出乾淨、完整、邏輯連貫的版本。
+_VOICE_CLEANUP_PROMPT_ZH = """你是一位語音輸入文字清理專家。用戶會貼入語音轉文字的原始逐字稿，你的任務是輸出乾淨、完整、邏輯連貫的版本。
 
 ## 處理規則
 
@@ -49,7 +49,82 @@ _VOICE_CLEANUP_PROMPT = """你是一位語音輸入文字清理專家。用戶�
 - 寧可多保留一句，也不要丟失任何原始意圖或細節
 - 不要添加原文沒有的內容
 - 不要改變用戶的立場或語氣強度
-- 如果某段話實在無法確定意思，用 [語意不明：原文片段] 標記"""
+- 如果某段話實在無法確定意思，用 [語意不明：原文片段] 標記
+
+## 輸出語言
+輸出為中文。若原文為其他語言，請先翻譯為中文再進行清理。"""
+
+_VOICE_CLEANUP_PROMPT_EN = """You are an expert at cleaning up voice-to-text transcripts. The user will paste a raw voice transcript. Your task is to output a clean, complete, logically coherent version.
+
+## Layer 1: Denoise
+- Remove pure filler words: um, uh, you know, like, so, basically, I mean, right, okay so, kind of, sort of
+- Fix speech recognition errors based on context
+- Fix broken proper nouns and technical terms
+
+## Layer 2: Dedup and Merge
+- Same idea stated multiple ways → keep the clearest version
+- Repeated hesitation before a clear conclusion → keep only the final conclusion, remove the hesitation
+- If the hesitation itself is meaningful (weighing two options) → keep as "A or B, undecided"
+
+## Layer 3: Restructure Output
+- Reorder by semantic logic, not necessarily the order spoken
+- If content covers multiple topics, use paragraphs or numbering
+- Preserve all specifics: numbers, names, conditions, constraints, preferences
+- Preserve uncertainty markers (should, might, probably → keep as-is, do not convert to certainties)
+
+## Output Format
+- Default: concise paragraphs, ready to use directly as an AI prompt
+- If content is clearly personal notes/diary/brainstorm (not instructions), use a bullet-note style
+- If user starts with "note mode", force note style
+- No preamble, explanation, or "here is the cleaned version" — output the result directly
+
+## Key Principles
+- Keep one extra sentence rather than lose any original intent or detail
+- Do not add content not present in the original
+- Do not change the user's stance or tone intensity
+- If a segment is truly unclear, mark it as [unclear: original fragment]
+
+Output in English. If the input is not in English, translate it to English first, then clean up."""
+
+_VOICE_CLEANUP_PROMPT_AUTO = """You are an expert at cleaning up voice-to-text transcripts. The user will paste a raw voice transcript. Your task is to output a clean, complete, logically coherent version.
+
+## Layer 1: Denoise
+- Remove pure filler words (e.g. um, uh, you know, 就是, 那個, 嗯, 啊, 然後, 對對對)
+- Fix speech recognition errors based on context
+- Fix broken proper nouns and technical terms
+
+## Layer 2: Dedup and Merge
+- Same idea stated multiple ways → keep the clearest version
+- Repeated hesitation before a clear conclusion → keep only the final conclusion
+- If the hesitation itself is meaningful (weighing options) → keep as "A or B, undecided"
+
+## Layer 3: Restructure Output
+- Reorder by semantic logic, not necessarily the order spoken
+- If content covers multiple topics, use paragraphs or numbering
+- Preserve all specifics: numbers, names, conditions, constraints, preferences
+- Preserve uncertainty markers (should, might, probably, 應該, 可能, 大概 → keep as-is)
+
+## Output Format
+- Default: concise paragraphs, ready to use directly as an AI prompt
+- If content is clearly personal notes/diary/brainstorm, use a bullet-note style
+- No preamble or explanation — output the result directly
+
+## Key Principles
+- Keep one extra sentence rather than lose any original intent or detail
+- Do not add content not present in the original
+- Do not change the user's stance or tone intensity
+- If a segment is truly unclear, mark it as [unclear: original fragment]
+
+Output in the same language(s) as the input. If the input mixes Chinese and English, preserve the mix naturally."""
+
+
+def _voice_cleanup_prompt(config: AppConfig) -> str:
+    output_lang = getattr(config, "output_language", "auto")
+    if output_lang == "en":
+        return _VOICE_CLEANUP_PROMPT_EN
+    if output_lang == "zh":
+        return _VOICE_CLEANUP_PROMPT_ZH
+    return _VOICE_CLEANUP_PROMPT_AUTO
 
 
 def maybe_process_online(text: str, config: AppConfig) -> str:
@@ -82,7 +157,7 @@ def maybe_process_online(text: str, config: AppConfig) -> str:
         if mode == "voice_cleanup":
             response = client.responses.create(
                 model=config.online_correct_model,
-                instructions=_VOICE_CLEANUP_PROMPT,
+                instructions=_voice_cleanup_prompt(config),
                 input=normalized,
                 max_output_tokens=1024,
             )
