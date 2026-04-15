@@ -44,6 +44,8 @@ from Quartz import (
     kCAMediaTimingFunctionEaseOut,
 )
 
+from whisperkey_mac.diagnostics import diag
+
 
 def dispatch_to_main(fn, *args) -> None:
     """Queue fn(*args) on the main run loop. Safe to call from any thread."""
@@ -499,11 +501,14 @@ class OverlayPanel:
 
     @classmethod
     def create(cls, result_max_lines: int = 3) -> "OverlayPanel":
+        diag("overlay_panel_create_start", result_max_lines=result_max_lines)
         instance = cls(result_max_lines)
         instance._build()
+        diag("overlay_panel_create_end")
         return instance
 
     def _build(self) -> None:
+        diag("overlay_panel_build_start")
         screen = NSScreen.mainScreen()
         sf = screen.frame()
         x = (sf.size.width - self.PANEL_W) / 2
@@ -549,6 +554,7 @@ class OverlayPanel:
         )
 
         print("[whisperkey] Overlay panel configured (invisible, alpha=0).")
+        diag("overlay_panel_build_end")
 
     def _build_content(self) -> None:
         w, h = float(self.PANEL_W), float(self.PANEL_H)
@@ -637,9 +643,11 @@ class OverlayPanel:
         }
 
     def show_recording(self) -> None:
+        diag("overlay_show_recording")
         self._state_machine.show_recording()
 
     def show_transcribing(self) -> None:
+        diag("overlay_show_transcribing")
         self._state_machine.show_transcribing()
 
     def show_result(
@@ -649,7 +657,9 @@ class OverlayPanel:
         display_duration_s: float = 3.0,
         dismiss_duration_s: float = 0.4,
     ) -> None:
+        diag("overlay_show_result", display_duration_s=display_duration_s, dismiss_duration_s=dismiss_duration_s)
         self._state_machine.show_result(text, hint, display_duration_s, dismiss_duration_s)
 
     def hide_after_paste(self, dismiss_duration_s: float = 0.2) -> None:
+        diag("overlay_hide_after_paste", dismiss_duration_s=dismiss_duration_s)
         self._state_machine.hide_after_paste(dismiss_duration_s)

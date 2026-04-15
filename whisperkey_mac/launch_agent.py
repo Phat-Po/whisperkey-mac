@@ -17,7 +17,7 @@ class LaunchAgentManager:
         *,
         label: str = LAUNCH_AGENT_LABEL,
         plist_path: Path = LAUNCH_AGENT_PATH,
-        module: str = "whisperkey_mac.main",
+        module: str = "whisperkey_mac.supervisor",
         python_executable: str | None = None,
         working_directory: str | None = None,
     ) -> None:
@@ -124,7 +124,7 @@ class LaunchAgentManager:
 {env_xml}
     </dict>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
     <key>RunAtLoad</key>
     <true/>
     <key>LimitLoadToSessionType</key>

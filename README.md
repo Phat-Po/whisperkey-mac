@@ -228,7 +228,7 @@ cat > ~/Library/LaunchAgents/com.whisperkey.plist << 'EOF'
     <array>
         <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey/venv/bin/python</string>
         <string>-m</string>
-        <string>whisperkey_mac.main</string>
+        <string>whisperkey_mac.supervisor</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
@@ -238,7 +238,7 @@ cat > ~/Library/LaunchAgents/com.whisperkey.plist << 'EOF'
         <string>1</string>
     </dict>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
     <key>RunAtLoad</key>
     <true/>
     <key>LimitLoadToSessionType</key>
@@ -259,7 +259,7 @@ EOF
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
 
-This LaunchAgent pattern is more resilient than calling the console script directly, and it continues to reuse any model already cached on disk.
+This LaunchAgent pattern starts the crash supervisor, which launches the app, writes crash details to `/tmp/whisperkey-last-crash.log`, and sends a macOS notification if the app exits unexpectedly.
 
 </details>
 

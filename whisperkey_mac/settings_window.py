@@ -25,6 +25,7 @@ from AppKit import (
 from Foundation import NSObject
 
 from whisperkey_mac.config import AppConfig, _transcribe_language_to_whisper
+from whisperkey_mac.diagnostics import diag
 
 
 # ── Options ───────────────────────────────────────────────────────────────────
@@ -108,10 +109,12 @@ class SettingsWindowController(NSObject):
 
     def show(self) -> None:
         from AppKit import NSApp
+        diag("settings_show_start")
         self._window.center()
         self._window.makeKeyAndOrderFront_(None)
         self._window.orderFrontRegardless()
         NSApp().activateIgnoringOtherApps_(True)
+        diag("settings_show_end")
 
     # ── Window construction ───────────────────────────────────────────────────
 
@@ -124,6 +127,7 @@ class SettingsWindowController(NSObject):
             frame, style, NSBackingStoreBuffered, False
         )
         self._window.setTitle_("WhisperKey Settings")
+        self._window.setReleasedWhenClosed_(False)
 
         content = self._window.contentView()
 
@@ -284,6 +288,7 @@ class SettingsWindowController(NSObject):
     # ── Actions ───────────────────────────────────────────────────────────────
 
     def saveSettings_(self, _sender) -> None:
+        diag("settings_save_start")
         mode_title = self._mode_popup.titleOfSelectedItem()
         mode = next((v for v, t in PROMPT_MODE_OPTIONS if t == mode_title), "disabled")
 
@@ -327,11 +332,48 @@ class SettingsWindowController(NSObject):
         updated.online_correct_enabled = updated.online_prompt_mode != "disabled"
 
         api_key = str(self._api_key_field.stringValue()).strip() or None
+        self._config = updated
+        self._launch_enabled = bool(self._launch_checkbox.state())
         self._on_save(updated, api_key, bool(self._launch_checkbox.state()))
         self._window.close()
+        diag("settings_save_end", mode=mode, launch_enabled=bool(self._launch_checkbox.state()))
 
     def cancelSettings_(self, _sender) -> None:
+        diag("settings_cancel")
         self._window.close()
+
+    @objc.python_method
+    def refresh(self, config: AppConfig, launch_enabled: bool) -> None:
+        self._config = config
+        self._launch_enabled = launch_enabled
+
+        self._select_option(self._lang_popup, LANGUAGE_OPTIONS, config.ui_language, "English")
+        self._select_option(
+            self._transcribe_lang_popup,
+            TRANSCRIBE_LANGUAGE_OPTIONS,
+            config.transcribe_language,
+            "Auto Detect",
+        )
+        self._select_option(
+            self._output_lang_popup,
+            OUTPUT_LANGUAGE_OPTIONS,
+            getattr(config, "output_language", "auto"),
+            "Match Input",
+        )
+        self._model_popup.selectItemWithTitle_(config.model_size)
+        self._launch_checkbox.setState_(1 if launch_enabled else 0)
+        self._select_option(self._mode_popup, PROMPT_MODE_OPTIONS, config.online_prompt_mode, "Disabled")
+        self._online_model_field.setStringValue_(config.online_correct_model)
+        self._timeout_field.setStringValue_(str(config.online_correct_timeout_s))
+        self._word_fix_view.setString_(word_replacements_to_text(getattr(config, "word_replacements", {})))
+        self._hold_key_field.setStringValue_(config.hold_key)
+        self._handsfree_field.setStringValue_(shortcut_list_to_text(config.handsfree_keys))
+        self._api_key_field.setStringValue_("")
+
+    @objc.python_method
+    def _select_option(self, popup, options: list[tuple[str, str]], value: str, fallback: str) -> None:
+        title = next((title for option_value, title in options if option_value == value), fallback)
+        popup.selectItemWithTitle_(title)
 
     # ── Widget factory helpers ─────────────────────────────────────────────────
     # @objc.python_method marks these as pure-Python so PyObjC doesn't try to

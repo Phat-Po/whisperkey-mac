@@ -7,6 +7,8 @@ import objc
 from AppKit import NSMenu, NSMenuItem, NSStatusBar, NSVariableStatusItemLength
 from Foundation import NSObject
 
+from whisperkey_mac.diagnostics import diag
+
 
 def button_title_for_state(is_running: bool) -> str:
     return "WK" if is_running else "WK·"
@@ -43,6 +45,7 @@ class MenuBarController(NSObject):
         return self
 
     def _build_menu(self) -> None:
+        diag("menu_bar_build_start")
         self._status_item = NSStatusBar.systemStatusBar().statusItemWithLength_(NSVariableStatusItemLength)
         self._status_item.button().setTitle_(button_title_for_state(self._service.is_running))
 
@@ -97,6 +100,7 @@ class MenuBarController(NSObject):
         menu.addItem_(quit_item)
 
         self._status_item.setMenu_(menu)
+        diag("menu_bar_build_end")
 
     def refresh(self) -> None:
         is_running = self._service.is_running
@@ -126,7 +130,10 @@ class MenuBarController(NSObject):
         threading.Thread(target=run_permissions, kwargs={"open_settings": True}, daemon=True).start()
 
     def openSettings_(self, _sender) -> None:
-        self._open_settings()
+        from whisperkey_mac.overlay import dispatch_to_main
+
+        diag("menu_open_settings")
+        dispatch_to_main(self._open_settings)
 
     def openSetupWizard_(self, _sender) -> None:
         command = (

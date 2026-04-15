@@ -14,9 +14,11 @@ def test_build_plist_contains_expected_runtime_fields():
 
     assert "com.whisperkey" in plist
     assert "/tmp/project/.venv/bin/python" in plist
-    assert "<string>whisperkey_mac.main</string>" in plist
+    assert "<string>whisperkey_mac.supervisor</string>" in plist
     assert "<string>small</string>" in plist
     assert "<string>Aqua</string>" in plist
+    assert "<key>KeepAlive</key>" in plist
+    assert "<false/>" in plist
 
 
 def test_enable_writes_plist_and_bootstraps():

@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 whisperkey = "whisperkey_mac.main:main"
+whisperkey-supervisor = "whisperkey_mac.supervisor:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

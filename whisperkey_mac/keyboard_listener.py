@@ -120,6 +120,10 @@ class HotkeyListener:
     def stop(self) -> None:
         """Pause the listener without destroying the CGEventTap."""
         self._paused = True
+        self.reset_state()
+
+    def reset_state(self) -> None:
+        """Clear key state after an ignored/cancelled recording transition."""
         if self._hold_timer:
             self._hold_timer.cancel()
             self._hold_timer = None

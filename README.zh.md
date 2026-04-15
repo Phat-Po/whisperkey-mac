@@ -228,7 +228,7 @@ cat > ~/Library/LaunchAgents/com.whisperkey.plist << 'EOF'
     <array>
         <string>/Users/YOUR_USERNAME/Library/Application Support/whisperkey/venv/bin/python</string>
         <string>-m</string>
-        <string>whisperkey_mac.main</string>
+        <string>whisperkey_mac.supervisor</string>
     </array>
     <key>EnvironmentVariables</key>
     <dict>
@@ -238,7 +238,7 @@ cat > ~/Library/LaunchAgents/com.whisperkey.plist << 'EOF'
         <string>1</string>
     </dict>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
     <key>RunAtLoad</key>
     <true/>
     <key>LimitLoadToSessionType</key>
@@ -259,7 +259,7 @@ EOF
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
 
-这种 LaunchAgent 写法比直接调用 console script 更稳，也会继续复用磁盘上已缓存的模型。
+这种 LaunchAgent 会启动 crash supervisor，由 supervisor 再启动主程序；如果主程序异常退出，会写入 `/tmp/whisperkey-last-crash.log` 并发送 macOS 通知。
 
 </details>
 

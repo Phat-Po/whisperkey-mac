@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 from whisperkey_mac.config import AppConfig, config_exists, load_config, save_config
+from whisperkey_mac.diagnostics import diag, enable_faulthandler, start_periodic_metrics, stop_periodic_metrics
 from whisperkey_mac.launch_agent import LaunchAgentManager
 from whisperkey_mac.service_controller import ServiceController
 from whisperkey_mac.keychain import save_openai_api_key
@@ -16,11 +17,18 @@ class App:
         self._service = ServiceController(self._config)
         self._launch_agent = LaunchAgentManager()
         self._lock_file = None
+        self._settings_retry_pending = False
+        self._settings_window = None
+        self._pending_settings_save = None
+        self._settings_save_retry_pending = False
 
     def run(self) -> None:
         if not self._acquire_single_instance_lock():
             print("[whisperkey] Another WhisperKey instance is already running; exiting.")
             return
+
+        enable_faulthandler()
+        diag("app_start")
 
         cfg = self._config
         import signal as _signal
@@ -30,6 +38,8 @@ class App:
         from whisperkey_mac.i18n import t
 
         app = NSApplication.sharedApplication()
+        diag("appkit_ready")
+        start_periodic_metrics()
         app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
 
         lang = cfg.ui_language
@@ -70,9 +80,12 @@ class App:
             open_settings=self.open_settings,
         )
 
+        diag("app_run_enter")
         app.run()
+        stop_periodic_metrics()
 
         sig_name = _sig_name_holder[0] if _sig_name_holder else "SIGTERM"
+        diag("app_run_exit", signal=sig_name)
         print(f"\n[whisperkey] {_('shutting_down')} ({sig_name})")
         self._service.shutdown()
 
@@ -93,16 +106,49 @@ class App:
         return True
 
     def open_settings(self) -> None:
+        diag("app_open_settings_start")
+        if self._service.is_busy:
+            diag("app_open_settings_deferred", reason="service_busy")
+            if not self._settings_retry_pending:
+                from PyObjCTools.AppHelper import callLater
+
+                self._settings_retry_pending = True
+                callLater(1.0, self._retry_open_settings)
+            return
+
+        self._settings_retry_pending = False
         from whisperkey_mac.settings_window import build_settings_window_controller
 
-        self._settings_window = build_settings_window_controller(
-            self._service.config,
-            launch_at_login_enabled=self._launch_agent.is_enabled(),
-            on_save=self._save_settings,
-        )
+        launch_enabled = self._launch_agent.is_enabled()
+        if self._settings_window is None:
+            diag("app_settings_build_start")
+            self._settings_window = build_settings_window_controller(
+                self._service.config,
+                launch_at_login_enabled=launch_enabled,
+                on_save=self._save_settings,
+            )
+            diag("app_settings_build_end")
+        else:
+            self._settings_window.refresh(self._service.config, launch_enabled)
         self._settings_window.show()
+        diag("app_open_settings_end")
+
+    def _retry_open_settings(self) -> None:
+        self._settings_retry_pending = False
+        self.open_settings()
 
     def _save_settings(self, config: AppConfig, api_key: str | None, launch_enabled: bool) -> None:
+        diag("app_save_settings_start", launch_enabled=launch_enabled)
+        if self._service.is_busy:
+            diag("app_save_settings_deferred", reason="service_busy")
+            self._pending_settings_save = (config, api_key, launch_enabled)
+            if not self._settings_save_retry_pending:
+                from PyObjCTools.AppHelper import callLater
+
+                self._settings_save_retry_pending = True
+                callLater(1.0, self._retry_save_settings)
+            return
+
         config.launch_at_login = launch_enabled
         save_config(config)
         if api_key:
@@ -112,6 +158,15 @@ class App:
         else:
             self._launch_agent.disable(remove_file=False)
         self._service.apply_config(config)
+        diag("app_save_settings_end", launch_enabled=launch_enabled)
+
+    def _retry_save_settings(self) -> None:
+        self._settings_save_retry_pending = False
+        pending = self._pending_settings_save
+        self._pending_settings_save = None
+        if pending is None:
+            return
+        self._save_settings(*pending)
 
 
 def detect() -> None:

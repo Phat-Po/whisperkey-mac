@@ -31,6 +31,10 @@ class _FakeListener:
         self.joined = True
 
 
+def _unpause(listener: HotkeyListener) -> None:
+    listener._paused = False
+
+
 def test_handsfree_stop_waits_until_combo_is_fully_released():
     timers: list[_FakeTimer] = []
 
@@ -48,6 +52,7 @@ def test_handsfree_stop_waits_until_combo_is_fully_released():
         on_record_stop_transcribe=on_stop,
         on_enter=unittest.mock.MagicMock(),
     )
+    _unpause(listener)
 
     with unittest.mock.patch("whisperkey_mac.keyboard_listener.threading.Timer", side_effect=_make_timer):
         listener._on_press(keyboard.Key.alt_r)
@@ -83,6 +88,7 @@ def test_handsfree_supports_cmd_backslash_keycode_combo():
         on_record_stop_transcribe=on_stop,
         on_enter=unittest.mock.MagicMock(),
     )
+    _unpause(listener)
     slash = keyboard.KeyCode.from_char("\\")
 
     listener._on_press(keyboard.Key.cmd)
@@ -125,6 +131,7 @@ def test_handsfree_combo_cancels_conflicting_hold_key_timer():
         on_record_stop_transcribe=unittest.mock.MagicMock(),
         on_enter=unittest.mock.MagicMock(),
     )
+    _unpause(listener)
 
     with unittest.mock.patch("whisperkey_mac.keyboard_listener.threading.Timer", side_effect=_make_timer):
         listener._on_press(keyboard.Key.cmd)
@@ -135,7 +142,7 @@ def test_handsfree_combo_cancels_conflicting_hold_key_timer():
     on_start.assert_called_once_with()
 
 
-def test_stop_joins_underlying_listener_thread():
+def test_stop_pauses_without_destroying_underlying_listener_thread():
     listener = HotkeyListener(
         hold_key="alt_r",
         handsfree_keys=["alt_r", "cmd_r"],
@@ -145,8 +152,19 @@ def test_stop_joins_underlying_listener_thread():
     )
     fake_listener = _FakeListener()
     listener._listener = fake_listener
+    listener._paused = False
+    listener._held_keys.add(keyboard.Key.alt_r)
+    listener._handsfree_combo_active = True
+    listener._handsfree_stop_pending = True
+    listener._mode = "handsfree"
 
     listener.stop()
 
-    assert fake_listener.stopped is True
-    assert fake_listener.joined is True
+    assert listener._paused is True
+    assert listener._listener is fake_listener
+    assert listener._held_keys == set()
+    assert listener._handsfree_combo_active is False
+    assert listener._handsfree_stop_pending is False
+    assert listener._mode == "idle"
+    assert fake_listener.stopped is False
+    assert fake_listener.joined is False

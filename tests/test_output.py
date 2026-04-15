@@ -16,20 +16,20 @@ def test_inject_returns_empty_for_blank_text():
     mock_copy.assert_not_called()
 
 
-def test_inject_returns_pasted_after_successful_paste():
+def test_inject_returns_inserted_after_successful_ax_write():
     output = TextOutput(AppConfig())
 
     with (
         unittest.mock.patch("whisperkey_mac.output.pyperclip.copy") as mock_copy,
         unittest.mock.patch.object(output, "_paste_clipboard") as mock_paste,
-        unittest.mock.patch.object(output, "_insert_via_ax") as mock_insert,
+        unittest.mock.patch.object(output, "_insert_via_ax", return_value=True) as mock_insert,
     ):
         result = output.inject("  hello world  ")
 
-    assert result == "applescript"
+    assert result == "inserted"
     mock_copy.assert_called_once_with("hello world")
-    mock_paste.assert_called_once_with(None)
-    mock_insert.assert_not_called()
+    mock_insert.assert_called_once_with("hello world")
+    mock_paste.assert_not_called()
 
 
 def test_inject_returns_clipboard_when_paste_fails():
@@ -52,7 +52,7 @@ def test_inject_returns_inserted_when_ax_write_succeeds():
 
     with (
         unittest.mock.patch("whisperkey_mac.output.pyperclip.copy") as mock_copy,
-        unittest.mock.patch.object(output, "_paste_clipboard", side_effect=RuntimeError("paste failed")),
+        unittest.mock.patch.object(output, "_paste_clipboard") as mock_paste,
         unittest.mock.patch.object(output, "_insert_via_ax", return_value=True) as mock_insert,
     ):
         result = output.inject("直接输入")
@@ -60,21 +60,22 @@ def test_inject_returns_inserted_when_ax_write_succeeds():
     assert result == "inserted"
     mock_copy.assert_called_once_with("直接输入")
     mock_insert.assert_called_once_with("直接输入")
+    mock_paste.assert_not_called()
 
 
-def test_inject_passes_target_bundle_id_to_applescript_fallback():
+def test_inject_passes_target_bundle_id_to_applescript_fallback_after_ax_failure():
     output = TextOutput(AppConfig())
 
     with (
         unittest.mock.patch("whisperkey_mac.output.pyperclip.copy"),
         unittest.mock.patch.object(output, "_paste_clipboard") as mock_paste,
-        unittest.mock.patch.object(output, "_insert_via_ax") as mock_insert,
+        unittest.mock.patch.object(output, "_insert_via_ax", return_value=False) as mock_insert,
     ):
         result = output.inject("hello", target_bundle_id="com.apple.TextEdit")
 
     assert result == "applescript"
+    mock_insert.assert_called_once_with("hello")
     mock_paste.assert_called_once_with("com.apple.TextEdit")
-    mock_insert.assert_not_called()
 
 
 def test_paste_clipboard_activates_target_bundle_before_keystroke():
@@ -92,18 +93,19 @@ def test_paste_clipboard_activates_target_bundle_before_keystroke():
     ]
 
 
-def test_inject_tries_ax_after_applescript_failure():
+def test_inject_tries_applescript_after_ax_failure():
     output = TextOutput(AppConfig())
 
     with (
         unittest.mock.patch("whisperkey_mac.output.pyperclip.copy"),
-        unittest.mock.patch.object(output, "_paste_clipboard", side_effect=RuntimeError("paste failed")),
-        unittest.mock.patch.object(output, "_insert_via_ax", return_value=True) as mock_insert,
+        unittest.mock.patch.object(output, "_paste_clipboard") as mock_paste,
+        unittest.mock.patch.object(output, "_insert_via_ax", return_value=False) as mock_insert,
     ):
         result = output.inject("hello", target_bundle_id="com.apple.TextEdit")
 
-    assert result == "inserted"
+    assert result == "applescript"
     mock_insert.assert_called_once_with("hello")
+    mock_paste.assert_called_once_with("com.apple.TextEdit")
 
 
 def test_inject_retries_frontmost_paste_after_targeted_applescript_failure():
@@ -112,13 +114,13 @@ def test_inject_retries_frontmost_paste_after_targeted_applescript_failure():
     with (
         unittest.mock.patch("whisperkey_mac.output.pyperclip.copy"),
         unittest.mock.patch.object(output, "_paste_clipboard", side_effect=[RuntimeError("activate failed"), None]) as mock_paste,
-        unittest.mock.patch.object(output, "_insert_via_ax") as mock_insert,
+        unittest.mock.patch.object(output, "_insert_via_ax", return_value=False) as mock_insert,
     ):
         result = output.inject("hello", target_bundle_id="com.tencent.xinWeChat")
 
     assert result == "applescript"
+    mock_insert.assert_called_once_with("hello")
     assert mock_paste.call_args_list == [
         unittest.mock.call("com.tencent.xinWeChat"),
         unittest.mock.call(None),
     ]
-    mock_insert.assert_not_called()
