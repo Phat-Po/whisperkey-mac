@@ -42,10 +42,11 @@ def test_online_correction_skips_low_cjk_ratio_text():
 
 
 def test_online_correction_returns_corrected_text_from_response():
+    # ASR correction now returns plain text directly (no JSON wrapper)
     cfg = _config()
     fake_client = unittest.mock.MagicMock()
     fake_client.responses.create.return_value = SimpleNamespace(
-        output_text='{"corrected_text":"今天下午三点开会"}'
+        output_text="今天下午三点开会"
     )
 
     with (
@@ -57,10 +58,11 @@ def test_online_correction_returns_corrected_text_from_response():
     assert result == "今天下午三点开会"
 
 
-def test_online_correction_falls_back_on_invalid_json():
+def test_online_correction_returns_plain_text_as_is():
+    # Plain text response is returned directly (no JSON parsing)
     cfg = _config()
     fake_client = unittest.mock.MagicMock()
-    fake_client.responses.create.return_value = SimpleNamespace(output_text="not-json")
+    fake_client.responses.create.return_value = SimpleNamespace(output_text="今天下午三点开会")
 
     with (
         unittest.mock.patch("whisperkey_mac.online_correct.load_openai_api_key", return_value="sk-test"),
@@ -68,7 +70,7 @@ def test_online_correction_falls_back_on_invalid_json():
     ):
         result = maybe_correct_online("今天下午三点开灰", cfg)
 
-    assert result == "今天下午三点开灰"
+    assert result == "今天下午三点开会"
 
 
 def test_custom_prompt_mode_returns_plain_text_output():

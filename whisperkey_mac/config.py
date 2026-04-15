@@ -49,7 +49,7 @@ class AppConfig:
     result_max_lines: int = 3
     online_correct_enabled: bool = False
     online_correct_provider: str = "openai"
-    online_correct_model: str = "gpt-4o-mini"
+    online_correct_model: str = "gpt-5.4"
     online_prompt_mode: str = "disabled"
     online_prompt_custom_text: str = ""
     online_correct_timeout_s: float = 8.0

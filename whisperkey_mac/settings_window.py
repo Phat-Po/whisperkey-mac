@@ -27,6 +27,7 @@ from Foundation import NSObject
 
 from whisperkey_mac.config import AppConfig, _transcribe_language_to_whisper
 from whisperkey_mac.diagnostics import diag
+from whisperkey_mac.usage_log import query_usage
 
 
 # ── Options ───────────────────────────────────────────────────────────────────
@@ -57,6 +58,10 @@ OUTPUT_LANGUAGE_OPTIONS = [
 MODEL_OPTIONS = ["base", "small", "large-v3-turbo"]
 
 ONLINE_MODEL_OPTIONS = [
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gpt-5.4-pro",
     "gpt-4o-mini",
     "gpt-4o",
     "gpt-4.1-mini",
@@ -65,6 +70,14 @@ ONLINE_MODEL_OPTIONS = [
     "o3-mini",
     "o4-mini",
 ]
+
+
+def _fmt_bytes(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TB"
 
 
 def _get_input_devices() -> list[str]:
@@ -180,6 +193,7 @@ class SettingsWindowController(NSObject):
         tab_view.addTabViewItem_(self._build_voice_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_wordfix_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_advanced_tab(IW, IH))
+        tab_view.addTabViewItem_(self._build_usage_tab(IW, IH))
 
     # ── Tab builders ──────────────────────────────────────────────────────────
 
@@ -296,6 +310,72 @@ class SettingsWindowController(NSObject):
         self._hint(view, "Example:  cloude → Claude    cloud ai → Claude AI", 20, 26)
 
         return self._tab_item("Word Fix", view)
+
+    @objc.python_method
+    def _usage_text(self) -> str:
+        stats = query_usage()
+
+        lines = [
+            f"Today:      input {stats['today_in']:,} tokens  output {stats['today_out']:,} tokens",
+            f"This week:  input {stats['week_in']:,} tokens  output {stats['week_out']:,} tokens",
+            f"All time:   input {stats['total_in']:,} tokens  output {stats['total_out']:,} tokens",
+            "",
+            "Disk usage:",
+        ]
+
+        # Audio temp files
+        temp_dir = getattr(self._config, "temp_dir", None)
+        if temp_dir is not None:
+            import pathlib
+            p = pathlib.Path(str(temp_dir))
+            if p.exists():
+                total = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+                lines.append(f"Audio temp:    {_fmt_bytes(total)}  ({p})")
+            else:
+                lines.append(f"Audio temp:    0 B  ({p})")
+
+        # Whisper model cache
+        import pathlib
+        hf_cache = pathlib.Path.home() / ".cache" / "huggingface"
+        whisper_cache = pathlib.Path.home() / "Library" / "Caches" / "whisper"
+        for cache_path in (hf_cache, whisper_cache):
+            if cache_path.exists():
+                total = sum(f.stat().st_size for f in cache_path.rglob("*") if f.is_file())
+                lines.append(f"Whisper model: {_fmt_bytes(total)}  ({cache_path})")
+                break
+
+        return "\n".join(lines)
+
+    @objc.python_method
+    def _build_usage_tab(self, w: float, h: float) -> NSTabViewItem:
+        view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+
+        # Refresh button at bottom
+        refresh_btn = NSButton.alloc().initWithFrame_(NSMakeRect(20.0, 12.0, 88.0, 28.0))
+        refresh_btn.setTitle_("Refresh")
+        refresh_btn.setBezelStyle_(1)
+        refresh_btn.setTarget_(self)
+        refresh_btn.setAction_("refreshUsage:")
+        view.addSubview_(refresh_btn)
+
+        # Scrollable read-only text view
+        scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(20.0, 50.0, w - 40.0, h - 70.0))
+        self._usage_text_view = NSTextView.alloc().initWithFrame_(
+            NSMakeRect(0.0, 0.0, w - 40.0, h - 70.0)
+        )
+        self._usage_text_view.setString_(self._usage_text())
+        self._usage_text_view.setFont_(NSFont.fontWithName_size_("Menlo", 11.0))
+        self._usage_text_view.setEditable_(False)
+        self._usage_text_view.setSelectable_(True)
+        scroll.setDocumentView_(self._usage_text_view)
+        scroll.setHasVerticalScroller_(True)
+        scroll.setBorderType_(2)  # NSBezelBorder
+        view.addSubview_(scroll)
+
+        return self._tab_item("Usage", view)
+
+    def refreshUsage_(self, _sender) -> None:
+        self._usage_text_view.setString_(self._usage_text())
 
     @objc.python_method
     def _build_advanced_tab(self, w: float, h: float) -> NSTabViewItem:

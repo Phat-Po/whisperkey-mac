@@ -5,15 +5,16 @@ import re
 
 from whisperkey_mac.config import AppConfig
 from whisperkey_mac.keychain import load_openai_api_key
+from whisperkey_mac.usage_log import log_usage
 
 
 _CJK_RE = re.compile(r"[\u3400-\u9fff]")
 
 _CORRECTION_INSTRUCTIONS = (
     "You correct Chinese ASR transcripts. "
-    "Return a JSON object with exactly one key: corrected_text. "
+    "Output only the corrected text, no explanation. "
     "Keep the original meaning. Fix only obvious ASR mistakes, homophone substitutions, "
-    "punctuation, and short context errors. Do not add explanations. "
+    "punctuation, and short context errors. "
     "Do not translate. Do not rewrite style. Do not expand the content."
 )
 
@@ -188,8 +189,13 @@ def maybe_process_online(text: str, config: AppConfig) -> str:
                 model=config.online_correct_model,
                 instructions=config.online_prompt_custom_text.strip(),
                 input=normalized,
-                max_output_tokens=256,
+                max_output_tokens=1024,
             )
+            try:
+                u = response.usage
+                log_usage("custom", config.online_correct_model, u.input_tokens, u.output_tokens)
+            except Exception:
+                pass
             return _extract_plain_text(getattr(response, "output_text", "")) or normalized
 
         if mode == "voice_cleanup":
@@ -199,6 +205,11 @@ def maybe_process_online(text: str, config: AppConfig) -> str:
                 input=normalized,
                 max_output_tokens=1024,
             )
+            try:
+                u = response.usage
+                log_usage("voice_cleanup", config.online_correct_model, u.input_tokens, u.output_tokens)
+            except Exception:
+                pass
             return _extract_plain_text(getattr(response, "output_text", "")) or normalized
 
         # asr_correction (default)
@@ -206,11 +217,14 @@ def maybe_process_online(text: str, config: AppConfig) -> str:
             model=config.online_correct_model,
             instructions=_CORRECTION_INSTRUCTIONS,
             input=f"Transcript:\n{normalized}",
-            text={"format": {"type": "json_object"}},
             max_output_tokens=256,
         )
-        corrected = _extract_corrected_text(getattr(response, "output_text", ""))
-        return corrected or normalized
+        try:
+            u = response.usage
+            log_usage("asr_correction", config.online_correct_model, u.input_tokens, u.output_tokens)
+        except Exception:
+            pass
+        return _extract_plain_text(getattr(response, "output_text", "")) or normalized
 
     except Exception as exc:
         print(f"[whisperkey] online_correct error: {exc}")
