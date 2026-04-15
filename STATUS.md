@@ -2,6 +2,56 @@
 
 ---
 
+## 2026-04-15 | Voice cleanup handoff prepared — next: refine feature/prompt
+
+**Done this session:**
+- Resolved hotkey-does-nothing bug (TCC CDHash invalidation after rebuild — re-granted permissions)
+- Confirmed full pipeline working: hold-to-record → transcribe → voice_cleanup → inject via AppleScript
+- Live test: 19.8s English audio → 1.64s transcription → 3.44s voice_cleanup → injected correctly
+- Handoff written: `HANDOFF-20260415-voice-cleanup.md`
+
+**Current state:**
+- App running from Terminal. Voice cleanup is functional with `output_language=en`, `model=gpt-4o-mini`, `timeout=15s`.
+- Known remaining: AX insertion falls back to AppleScript (works, not blocking); LaunchAgent log blind (console=False → stdout goes to /dev/null in service mode).
+- All code committed as of `5b8818b`. Only `STATUS.md` is uncommitted.
+
+**Next steps:**
+1. Read `HANDOFF-20260415-voice-cleanup.md`
+2. Ask operator what specifically to improve (prompt quality, note mode, output language, custom prompt UI, min_chars tuning)
+3. Edit prompts in `whisperkey_mac/online_correct.py` (no rebuild needed for prompt-only changes)
+4. Test: relaunch app, record, verify `online_correction_end changed=True` and check injected text
+
+**Decisions / notes:**
+- Prompt-only changes don't require rebuild. Just quit + relaunch the app.
+- After any code change that triggers `build_app.sh`, re-grant TCC permissions before testing.
+
+---
+
+## 2026-04-15 | Hotkey debug resolved — full pipeline working
+
+**Root cause:** Ad-hoc CDHash invalidation. Every `build_app.sh` run re-signs the binary with a new ad-hoc hash. macOS TCC ties trust records to the exact CDHash, so the previous session's packaging rebuild silently dropped the old permission grants. No code changes were needed.
+
+**Fix applied:**
+1. Killed stale supervisor (82359) and child (86592) processes.
+2. Removed old WhisperKey.app entries from System Settings → Accessibility and Input Monitoring.
+3. Re-added `dist/WhisperKey.app` to both panes and enabled toggles.
+4. Launched from Terminal: `dist/WhisperKey.app/Contents/MacOS/WhisperKey`
+
+**Verified working:**
+- No "This process is not trusted!" on startup.
+- Hold right Option → `recording_start` fires.
+- `cmd + \` hands-free → full transcription + online correction + AppleScript injection confirmed.
+- Transcribed 19.8s of English speech in 1.64s with voice_cleanup correction applied.
+
+**Known remaining:**
+- AX insertion still unavailable (`path=unavailable`); AppleScript fallback is working. Separate task if direct AX paste is desired.
+- `console=False` in WhisperKey.spec means `print()`/`[wkdiag]` output goes to /dev/null when running via LaunchAgent (not a terminal). Faulthandler still works. For LaunchAgent log visibility, would need `console=True` + rebuild.
+- LaunchAgent will restart the app on next login (KeepAlive=false, RunAtLoad=true). After any future `build_app.sh` rebuild, permissions must be re-granted because the CDHash changes with each ad-hoc build.
+
+**Rule for future sessions:** After every `build_app.sh` run, re-grant both Accessibility and Input Monitoring in System Settings before testing the packaged hotkey.
+
+---
+
 ## 2026-04-15 | Packaged app hotkey still fails after permissions; handoff refreshed and current work ready to commit
 
 **Session summary:**
