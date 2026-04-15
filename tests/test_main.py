@@ -113,6 +113,7 @@ def test_transcribe_and_inject_uses_corrected_text_for_direct_paste():
     service = _build_service()
     service._transcriber.transcribe.return_value = "原始文本"
     service._output.inject.return_value = "inserted"
+    service._frontmost_bundle_id = unittest.mock.MagicMock(return_value="com.apple.TextEdit")
     recording = SimpleNamespace(path=unittest.mock.MagicMock())
 
     with (

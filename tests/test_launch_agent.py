@@ -21,6 +21,19 @@ def test_build_plist_contains_expected_runtime_fields():
     assert "<false/>" in plist
 
 
+def test_build_plist_can_use_packaged_app_executable():
+    manager = LaunchAgentManager(
+        program_arguments=["/Applications/WhisperKey.app/Contents/MacOS/WhisperKey"],
+        working_directory="/Users/tester/Library/Application Support/WhisperKey",
+    )
+
+    plist = manager._build_plist(model_size="small")
+
+    assert "/Applications/WhisperKey.app/Contents/MacOS/WhisperKey" in plist
+    assert "<string>whisperkey_mac.supervisor</string>" not in plist
+    assert "/Users/tester/Library/Application Support/WhisperKey" in plist
+
+
 def test_enable_writes_plist_and_bootstraps():
     plist_path = Path("/tmp/com.whisperkey.test.plist")
     manager = LaunchAgentManager(plist_path=plist_path)

@@ -133,7 +133,7 @@ Run `whisperkey setup` to customize hotkeys.
 
 ```bash
 whisperkey setup   # re-run setup wizard
-whisperkey permissions  # open the right macOS permission panes + print Python.app path
+whisperkey permissions  # open the right macOS permission panes + print the app path to authorize
 whisperkey help    # troubleshoot permissions, model, audio
 ```
 
@@ -180,10 +180,12 @@ WhisperKey requires two macOS system permissions:
 **2. Accessibility** — to paste transcribed text into the active app
 → System Settings → Privacy & Security → Accessibility
 
-Add **Python.app** to both lists and enable the toggle. Python.app is typically at:
+Add the app printed by `whisperkey permissions` or `whisperkey help` to both lists and enable the toggle.
+For source installs this is usually Python.app:
 ```
 /opt/homebrew/Cellar/python@3.xx/x.x.x/Frameworks/Python.framework/Versions/3.xx/Resources/Python.app
 ```
+For the packaged build, authorize `dist/WhisperKey.app`.
 
 ---
 

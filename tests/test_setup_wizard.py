@@ -98,3 +98,18 @@ def test_run_permissions_prints_real_python_app_and_opens_settings(capsys):
     assert "Permission Setup" in output
     assert "/opt/homebrew/.../Python.app" in output
     mock_open.assert_called_once_with()
+
+
+def test_run_permissions_prints_packaged_app_path(capsys):
+    with (
+        unittest.mock.patch("whisperkey_mac.setup_wizard.load_config", return_value=unittest.mock.MagicMock(ui_language="en")),
+        unittest.mock.patch("whisperkey_mac.help_cmd._check_accessibility", return_value=False),
+        unittest.mock.patch("whisperkey_mac.help_cmd._check_input_monitoring", return_value=False),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._python_app_path", return_value="/Applications/WhisperKey.app"),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._open_permission_settings") as mock_open,
+    ):
+        run_permissions(open_settings=False)
+
+    output = capsys.readouterr().out
+    assert "/Applications/WhisperKey.app" in output
+    mock_open.assert_not_called()

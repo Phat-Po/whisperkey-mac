@@ -2,6 +2,54 @@
 
 ---
 
+## 2026-04-15 | Packaged app hotkey still fails after permissions; handoff refreshed and current work ready to commit
+
+**Session summary:**
+Debugged `dist/WhisperKey.app` after the app launched but hotkey recording did nothing. Clean terminal launch proved the packaged parent/child app reaches overlay creation, `service_hotkey_start`, and `service_start_end`; the initial blocker was macOS trust, with `pynput` printing `This process is not trusted! Input event monitoring will not be possible until it is added to accessibility clients.` Packaged CLI routing was fixed so `WhisperKey --help` and `permissions` work from the bundled executable and point at `dist/WhisperKey.app` instead of misleading users toward `Python.app`.
+
+**Done this session:**
+- Added/kept local `.app` packaging flow:
+  - `whisperkey_mac/app_entry.py`
+  - `packaging/macos/WhisperKey.spec`
+  - `packaging/macos/build_app.sh`
+  - `packaging/macos/entitlements.plist`
+- Updated packaged runtime/supervisor/LaunchAgent behavior so frozen mode launches the bundled executable and child process correctly.
+- Fixed packaged CLI/debug routing for `setup`, `permissions`, `settings`, `help`, `--help`, `-h`, and `detect`.
+- Updated permission/help wording in README and i18n strings so packaged users authorize `dist/WhisperKey.app`.
+- Added regression tests for packaged app entry routing and packaged permission path output.
+- Rebuilt and ad-hoc signed `dist/WhisperKey.app`.
+
+**Current state:**
+- User has now opened/authorized both macOS permission panes and restarted, but reports the hotkey still does not work.
+- That means the next task is no longer "tell user to grant permissions"; it is a fresh packaged hotkey debug mission.
+- The installed user LaunchAgent `~/Library/LaunchAgents/com.whisperkey.plist` previously pointed at an old Python module command and polluted `/tmp/whisperkey.log`; do not edit/unload it without explicit approval.
+- Working tree is ready to commit locally. Do not push.
+
+**Verified this session:**
+- `.venv/bin/python -m compileall -q whisperkey_mac tests`
+- `.venv/bin/python -m pytest -q` -> `111 passed`
+- `git diff --check`
+- `packaging/macos/build_app.sh`
+- `codesign --verify --deep --strict --verbose=2 dist/WhisperKey.app`
+- `dist/WhisperKey.app/Contents/MacOS/WhisperKey --help`
+
+**Next task:**
+Start a focused debug mission for "permissions granted but packaged hotkey still does nothing":
+- confirm the exact TCC entries macOS granted for `dist/WhisperKey.app` versus the bundled executable and any stale app identity
+- launch the rebuilt executable from Terminal and capture clean stdout while the user presses the hotkey
+- verify whether `pynput` still prints the "not trusted" warning after the permission change
+- verify whether `recording_start` appears when holding the configured hotkey
+- inspect config hotkey values, especially current hands-free combo `cmd + char:\`
+- decide whether the issue is TCC identity, wrong key expectation, stale running binary, stale single-instance/LaunchAgent conflict, event tap failure, or overlay/audio path
+
+**Decisions / constraints:**
+- Do not push, notarize, create GitHub release artifacts, edit `.env*`, or modify/unload LaunchAgent/system services without explicit approval.
+- Use project `.venv` Python 3.12.10, not system `python3`.
+- Keep existing supervisor crash diagnostics behavior.
+- Continue to treat `/tmp/whisperkey.log` as polluted unless the next agent separates app stdout from the old LaunchAgent.
+
+---
+
 ## 2026-04-15 | Crash diagnostics added; waiting for reproduction logs
 
 **Session summary:**  

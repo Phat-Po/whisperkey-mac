@@ -1,242 +1,149 @@
-# Handoff — WhisperKey Mac native crash after repeated transcription
+# Handoff — WhisperKey.app hotkey still fails after permissions
 
 **Date**: 2026-04-15  
 **Project**: WhisperKey Mac  
 **Path**: `/Volumes/轻松打爆你/VIBE CODING/10_PROJECTS_ACTIVE/20260302__python__vibemouse-mac`  
-**Branch**: `main`, ahead of origin; local working tree has uncommitted edits.
+**Branch**: `main`, ahead of origin. Do not push.
 
 ---
 
-## Current Task
+## Current Mission
 
-Diagnostic instrumentation has now been added for the intermittent native crash in the macOS menu bar app, two evidence-based mitigation rounds have been applied, and LaunchAgent crash supervision has been added.
+Debug the local PyInstaller-built `dist/WhisperKey.app`.
 
-The next task is another reproduction run to see whether this mitigation removes the crash.
+User report:
 
-The crash is no longer tied to only one action. It has appeared after:
+- `WhisperKey.app` opens.
+- Both macOS permission panes were opened/enabled for the app.
+- App was restarted.
+- Pressing the recording hotkey still does nothing visibly: no overlay, no recording start.
 
-- repeated successful transcription + injection
-- opening Settings after prior transcriptions
-- saving Settings after a previous injection
-
-Observed process exits include both:
-
-- `zsh: segmentation fault`
-- `zsh: trace trap`
-
-The Python shutdown warning often follows:
-
-```text
-resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
-```
-
-Do not assume this warning is the direct root cause; it may be a side effect of native crash shutdown or dependency processes.
+The previous obvious blocker was missing macOS trust. That is no longer enough as the final answer because the user says they granted both permissions and restarted.
 
 ---
 
-## Most Recent User Observation
+## What Was Just Completed
 
-Latest run succeeded for:
+Packaged `.app` MVP work and local diagnostics were implemented and committed-ready:
 
-1. one transcription with clipboard path
-2. one long transcription with AppleScript fallback
-3. one Chinese transcription with AppleScript fallback
-
-Then the process crashed with `segmentation fault`. The user reports that another run survived two transcriptions and one Settings change, then crashed immediately on the third menu bar Settings click.
-
-Important latest log fragment:
-
-```text
-[whisperkey] AX insert unavailable; falling back to AppleScript paste.
-[whisperkey] 已输入 applescript.
-[whisperkey] inject_path=applescript
-zsh: segmentation fault
-```
-
-This means AppleScript fallback is still being used in real usage after AX insertion fails.
-
----
-
-## Current Working Hypothesis
-
-Do not continue guessing single fixed trigger paths. The behavior now looks like native state corruption or lifecycle pressure around these components:
-
-- PyObjC/AppKit menu bar and Settings windows
-- overlay NSPanel animations and AppKit timers
-- `pynput` keyboard listener / macOS CGEventTap
-- AppleScript/System Events synthetic Cmd+V paste
-- faster-whisper / ctranslate2 native runtime and multiprocessing cleanup
-- online correction network call path
-
-CPU/memory overload is not ruled out, but it is not the leading explanation. Resource and fatal-crash instrumentation is now present, so the next reproduction should provide evidence before further functional changes.
-
-New diagnostic output format:
-
-```text
-[wkdiag] event=<event-name> rss_mb=<mb> cpu_pct=<pct> threads=<count> maxrss_kb=<kb> ...
-```
-
-Fatal dumps are written to:
-
-```text
-/tmp/whisperkey-faulthandler.log
-```
-
-Most recent captured fatal stack showed:
-
-- Current/main thread: `App.open_settings()` at `whisperkey_mac/main.py:108`, before `SettingsWindowController.show`.
-- Another thread: `sounddevice.py:stop` inside `AudioRecorder.stop_and_save()`, called from `ServiceController._stop_and_transcribe()`, called by `pynput` keyboard `_on_release` / macOS CGEventTap callback.
-
-Interpretation: the crash is strongly associated with opening Settings while audio stream stop/close is still running on the native keyboard event callback thread.
-
-Second reproduction after that fix showed:
-
-- `sounddevice.stop` was no longer on the fatal stack.
-- Crash moved to `_retry_open_settings -> App.open_settings -> build_settings_window_controller`, after repeated deferred Settings attempts during heavy recording/transcribe churn.
-- User also observed stale/previous recording content being emitted later; logs confirmed new recordings were allowed to start while a previous stop/transcribe/correct/inject worker was still busy.
-
-Interpretation: Settings native window construction and config application must be kept out of high-churn service states, and recording state must not be allowed to overlap with processing state.
-
----
-
-## Current Uncommitted Code Changes
-
-These edits are already in the working tree and should be preserved unless the user explicitly asks to revert them:
-
-- `whisperkey_mac/diagnostics.py`
-  - new standard-library-only diagnostics module.
-  - enables `faulthandler` to `/tmp/whisperkey-faulthandler.log`.
-  - logs RSS, CPU, thread count, and `ru_maxrss` for event and periodic diagnostics.
-- `whisperkey_mac/main.py`
-  - enables diagnostics at app startup.
-  - logs AppKit readiness, run loop entry/exit, Settings open/save.
-  - defers Settings opening while the service is busy.
-  - reuses one Settings window controller instead of rebuilding native AppKit windows on every click.
-  - defers Settings save/apply while the service is busy.
+- `whisperkey_mac/app_entry.py`
+  - packaged app entrypoint
+  - creates `~/Library/Application Support/WhisperKey`
+  - parent process starts `Supervisor(app_executable=sys.executable)`
+  - child process runs `whisperkey_mac.main.main()` when `WHISPERKEY_APP_CHILD=1`
+  - packaged CLI/debug commands now route directly to `whisperkey_mac.main.main()`:
+    - `setup`
+    - `permissions`
+    - `settings`
+    - `help`
+    - `--help`
+    - `-h`
+    - `detect`
 - `whisperkey_mac/supervisor.py`
-  - new outer wrapper intended for LaunchAgent runs.
-  - launches `whisperkey_mac.main` as a child process.
-  - writes `/tmp/whisperkey-last-crash.log` and sends a macOS notification when the child exits with non-zero or signal status.
-  - restarts with backoff up to 3 crashes within 5 minutes, then stops.
+  - supports `app_executable`
+  - packaged child is launched as the same bundled executable
+  - sets `WHISPERKEY_SUPERVISED=1` and `WHISPERKEY_APP_CHILD=1`
 - `whisperkey_mac/launch_agent.py`
-  - generated plist now runs `whisperkey_mac.supervisor`.
-  - `KeepAlive` is false so supervisor, not launchd, owns crash restart/backoff.
-- `whisperkey_mac/transcriber.py`
-  - logs model load/unload and transcribe start/end.
-- `whisperkey_mac/overlay.py`
-  - logs overlay panel creation and display/hide events.
-- `whisperkey_mac/settings_window.py`
-  - logs Settings show/save/cancel events.
-  - calls `setReleasedWhenClosed_(False)` and exposes `refresh(...)` so the native window can be reused safely.
-- `tests/test_keyboard_listener.py`
-  - synced tests with the current pause-style listener behavior.
-- `tests/test_main.py`
-  - added regression coverage for non-blocking stop/transcribe dispatch, Settings busy deferral, Settings save deferral, busy recording-start rejection, and own-Python-app paste blocking.
-- `tests/test_launch_agent.py`
-  - updated generated plist expectations for supervisor module and `KeepAlive` false.
-- `tests/test_supervisor.py`
-  - new tests for signal/exit classification, crash report writing, notification escaping, one-crash restart, and repeated-crash stop behavior.
-- `pyproject.toml`
-  - added `whisperkey-supervisor` console script.
-- `README.md` / `README.zh.md`
-  - LaunchAgent examples now use supervisor and describe crash notification/log behavior.
-
-- `whisperkey_mac/menu_bar.py`
-  - `openSettings_` now dispatches `open_settings` via `dispatch_to_main`.
-  - logs the menu Settings action and menu creation.
-- `whisperkey_mac/service_controller.py`
-  - terminal bundle IDs are blocked from automatic paste.
-  - `org.python.python` is blocked from automatic paste to avoid self-targeted injection after Settings focus.
-  - `apply_config()` no longer recreates `AudioRecorder` unless audio config changes.
-  - logs service lifecycle, config application, recording/transcribe/correction/injection phases.
-  - `_stop_and_transcribe()` no longer calls `AudioRecorder.stop_and_save()` inline from the `pynput` callback; it dispatches a `WhisperKeyStopTranscribe` worker and returns.
-  - service busy state covers recording, stop/transcribe/correct/inject processing, and a 2-second AppKit quiet period after processing.
-  - `_start_recording()` ignores attempts while busy and resets hotkey state to avoid queued/stale recordings.
-- `whisperkey_mac/output.py`
-  - injection now tries AX insertion before AppleScript fallback.
-  - logs when it falls back to AppleScript.
-  - logs AX, AppleScript, retry, and clipboard-only injection paths.
-- `tests/test_main.py`
-  - regression tests for Terminal autopaste blocklist.
-  - regression test that `apply_config()` reuses recorder when audio config is unchanged.
-- `tests/test_output.py`
-  - tests updated for AX-first injection order.
-
-Existing untracked files:
-
-- `STATUS.md`
-- `HANDOFF-20260414-sigtrap-debug.md`
-- `whisperkey_mac/diagnostics.py`
-
-Do not delete these; they are the project handoff/status files.
+  - frozen mode LaunchAgent ProgramArguments use bundled executable
+  - dev mode still uses Python module command
+- `packaging/macos/WhisperKey.spec`
+  - PyInstaller app bundle spec
+  - bundle id `com.phatpo.whisperkey`
+  - `LSUIElement=true`
+  - microphone and Apple Events usage strings
+- `packaging/macos/build_app.sh`
+  - builds `dist/WhisperKey.app`
+  - ad-hoc signs it
+  - verifies codesign
+- `packaging/macos/entitlements.plist`
+  - minimal ad-hoc signing entitlements
+- `whisperkey_mac/help_cmd.py`, `whisperkey_mac/i18n.py`, `README.md`
+  - packaged permission/help wording now points to the actual app path instead of saying only `Python.app`
+- Tests added for packaged entry routing and packaged permission path output.
 
 ---
 
-## Verified Commands
+## Evidence Already Collected
 
-Use the project venv, not system `python3`.
+Clean terminal launch of `dist/WhisperKey.app/Contents/MacOS/WhisperKey` before the user re-granted permissions showed the packaged child started correctly:
 
-Already passed:
-
-```bash
-.venv/bin/python --version
-# Python 3.12.10
-
-.venv/bin/python -m compileall -q whisperkey_mac tests/test_output.py tests/test_main.py
-
-.venv/bin/python -m pytest tests/test_output.py tests/test_main.py -q
-# 25 passed
-
-.venv/bin/python -m compileall -q whisperkey_mac tests
-
-.venv/bin/python -m pytest -q
-# 104 passed
+```text
+[wkdiag] event=app_start ...
+[wkdiag] event=appkit_ready ...
+[wkdiag] event=overlay_create_start ...
+[wkdiag] event=overlay_create_end ...
+[wkdiag] event=service_start_begin ...
+[wkdiag] event=service_hotkey_start ...
+[wkdiag] event=service_start_end ...
+This process is not trusted! Input event monitoring will not be possible until it is added to accessibility clients.
 ```
 
-System `/usr/bin/python3` is 3.9.6 and below project baseline; avoid using it for project validation.
+Interpretation at that time:
+
+- packaged child was alive
+- overlay creation worked
+- service startup worked
+- hotkey listener attempted to start
+- bundled `pynput`, Quartz, ApplicationServices, objc, and sounddevice were present
+- missing Input Monitoring / Accessibility was the likely immediate blocker
+
+After the user granted both permissions and restarted, the bug persists.
 
 ---
 
-## Next Agent: Exact Next Task
+## Important Complication
 
-Ask the user to reproduce the same crash sequence and provide:
+There is an existing installed LaunchAgent:
 
-- Terminal output from the run, especially the last `[wkdiag]` lines before crash.
-- `/tmp/whisperkey-faulthandler.log`
-- If running via LaunchAgent/supervisor: `/tmp/whisperkey-last-crash.log`
+```text
+~/Library/LaunchAgents/com.whisperkey.plist
+```
 
-Expected changed behavior:
+Earlier it pointed to the old Python module command and repeatedly failed with:
 
-- Repeated Settings clicks during active recording/transcribe/correction should defer without rebuilding Settings.
-- Hands-free attempts during processing should log `recording_start_ignored reason=service_busy` and should not create a queued recording.
-- Settings save during processing should log `app_save_settings_deferred reason=service_busy`.
-- Once the LaunchAgent plist is regenerated, native crashes should produce a macOS notification and `/tmp/whisperkey-last-crash.log`.
+```text
+ModuleNotFoundError: No module named 'numpy'
+```
 
-Important operational note:
+It writes to:
 
-- Existing installed LaunchAgent files are not rewritten by this code change alone.
-- To make the live login item use supervisor, regenerate the LaunchAgent by saving Settings with Launch at Login enabled, toggling Launch at Login off/on, or reinstalling/bootstraping the plist.
+```text
+/tmp/whisperkey.log
+```
 
-If the crash persists, use those logs to determine whether the next fix should target:
+Treat `/tmp/whisperkey.log` as polluted unless you separate a fresh packaged app run from old LaunchAgent output.
 
-- AppleScript/System Events paste path
-- AppKit menu/Settings/overlay lifecycle
-- `pynput` / CGEventTap state
-- faster-whisper / ctranslate2 native runtime
-- resource pressure, such as RSS/thread growth
-- PortAudio/sounddevice stream shutdown outside the callback worker
+Do not unload, edit, replace, or bootstrap this LaunchAgent unless the user explicitly approves that specific system-service action.
 
 ---
 
-## Boundaries / Do Not Do Yet
+## High-Probability Debug Areas
 
-- Do not install new packages.
-- Do not use `psutil`.
-- Do not commit/push/deploy.
-- Do not edit `.env*` or credential/keychain logic except for logging-free flow checks.
-- Do not disable AppleScript fallback yet unless diagnostics prove it is consistently the last risky path.
-- Do not rewrite overlay or Settings UI before collecting crash evidence.
-- Do not revert the existing uncommitted fixes without explicit user approval.
+1. **TCC identity mismatch**
+   - User may have authorized a previous build, a copied app, Terminal, Python.app, or a stale app identity.
+   - Rebuilding/ad-hoc signing can change the code identity enough that macOS privacy grants may not apply as expected.
+   - Need evidence from a fresh terminal run after permissions were granted.
+
+2. **Wrong hotkey expectation**
+   - Current config from this session showed:
+
+     ```json
+     "hold_key": "alt_r",
+     "handsfree_keys": ["cmd", "char:\\"]
+     ```
+
+   - The user may be pressing the old/default hands-free combo instead of the configured one.
+   - Need verify hold-to-record with right Option (`alt_r`) and the configured hands-free combo separately.
+
+3. **Stale running binary or single-instance conflict**
+   - A previous app instance, old LaunchAgent child, or stale process could hold the lock or consume attention.
+   - Confirm exact running PIDs and executable paths before any new run.
+
+4. **Event tap starts but receives no events**
+   - If `pynput` no longer prints "not trusted" but hotkey callbacks still never fire, add temporary diagnostics around `HotkeyListener._on_press`, `_on_release`, and `_start_hold_recording`.
+
+5. **Recording starts but overlay/audio does not**
+   - If `recording_start` appears but no overlay is visible, debug overlay/AppKit dispatch and audio recorder separately.
 
 ---
 
@@ -244,23 +151,149 @@ If the crash persists, use those logs to determine whether the next fix should t
 
 1. `STATUS.md`
 2. `HANDOFF-20260414-sigtrap-debug.md`
-3. `whisperkey_mac/main.py`
-4. `whisperkey_mac/service_controller.py`
-5. `whisperkey_mac/output.py`
-6. `whisperkey_mac/menu_bar.py`
-7. `whisperkey_mac/settings_window.py`
-8. `whisperkey_mac/overlay.py`
-9. `tests/test_main.py`
-10. `tests/test_output.py`
+3. `whisperkey_mac/app_entry.py`
+4. `whisperkey_mac/main.py`
+5. `whisperkey_mac/service_controller.py`
+6. `whisperkey_mac/keyboard_listener.py`
+7. `whisperkey_mac/help_cmd.py`
+8. `whisperkey_mac/setup_wizard.py`
+9. `whisperkey_mac/supervisor.py`
+10. `whisperkey_mac/launch_agent.py`
+11. `packaging/macos/WhisperKey.spec`
+12. `packaging/macos/build_app.sh`
 
 ---
 
-## Useful Context From Prior Debugging
+## Non-Mutating First Checks
 
-Earlier crash hypothesis around `pynput` stop/start was partly addressed before this handoff:
+Start with read-only/runtime inspection:
 
-- `HotkeyListener` already has `_paused` behavior and does not destroy/recreate CGEventTap on normal service stop/start.
-- Settings save no longer rebuilds the hotkey listener.
-- `apply_config()` now avoids unnecessary recorder rebuilds.
+```bash
+pgrep -af 'WhisperKey|whisperkey_mac|com.whisperkey' || true
+ps -axo pid,ppid,stat,command | rg 'WhisperKey|whisperkey_mac|com\.whisperkey' || true
+plutil -p dist/WhisperKey.app/Contents/Info.plist
+codesign -dv --verbose=4 dist/WhisperKey.app 2>&1
+codesign --verify --deep --strict --verbose=2 dist/WhisperKey.app
+dist/WhisperKey.app/Contents/MacOS/WhisperKey --help
+stat -f '%Sm %N' /tmp/whisperkey-faulthandler.log /tmp/whisperkey-last-crash.log /tmp/whisperkey.log 2>/dev/null || true
+tail -n 120 /tmp/whisperkey-faulthandler.log 2>/dev/null || true
+tail -n 80 /tmp/whisperkey-last-crash.log 2>/dev/null || true
+```
 
-The remaining crash still occurs after those mitigations, so the next step is evidence collection, not repeating the old SIGTRAP-only fix.
+Then run a clean packaged app foreground session:
+
+```bash
+dist/WhisperKey.app/Contents/MacOS/WhisperKey
+```
+
+Ask the user to test:
+
+- hold right Option for at least 1 second, then release
+- if that fails, test the configured hands-free combo `cmd + \`
+- report exactly which physical keys they pressed
+
+Watch for:
+
+- `This process is not trusted`
+- `service_start_end`
+- `Recording...`
+- `recording_start`
+- `recording_start_ignored`
+- `recording_started`
+- overlay events
+- sounddevice errors
+- `Another WhisperKey instance is already running`
+
+---
+
+## If Evidence Is Still Missing
+
+Plan a tiny diagnostic patch, then ask for approval before implementation if not already approved:
+
+- Add `diag()` calls in:
+  - `HotkeyListener.start`
+  - `HotkeyListener._on_press`
+  - `HotkeyListener._on_release`
+  - `HotkeyListener._start_hold_recording`
+- Include sanitized fields only:
+  - key name from `pynput_key_to_name`
+  - paused state
+  - current mode
+  - whether key matched hold key
+  - whether combo is active
+- Do not log transcript text, API keys, keychain values, or secrets.
+
+This will distinguish "event tap receives nothing" from "hotkey logic receives events but does not match configured keys."
+
+---
+
+## Validation Commands
+
+Use project venv, not system `python3`:
+
+```bash
+.venv/bin/python -m compileall -q whisperkey_mac tests
+.venv/bin/python -m pytest -q
+git diff --check
+packaging/macos/build_app.sh
+codesign --verify --deep --strict --verbose=2 dist/WhisperKey.app
+dist/WhisperKey.app/Contents/MacOS/WhisperKey --help
+```
+
+Manual acceptance after the real fix:
+
+- launch `dist/WhisperKey.app`
+- menu bar item appears
+- hotkey press logs `recording_start`
+- overlay appears
+- release/transcribe path starts
+- one real recording can be transcribed and pasted or copied
+- quit from menu or Apple Events exits parent and child processes
+
+---
+
+## Boundaries / Do Not Do
+
+- Do not push.
+- Do not create GitHub release artifacts.
+- Do not notarize.
+- Do not edit `.env*`.
+- Do not unload/replace/edit the current `com.whisperkey` LaunchAgent without explicit approval.
+- Do not modify active system services.
+- Do not remove supervisor crash diagnostics.
+- Do not trust `/tmp/whisperkey.log` as clean packaged app evidence until LaunchAgent noise is separated.
+
+---
+
+## Starter Prompt For Next Agent
+
+```text
+批准执行
+
+You are working in:
+
+/Volumes/轻松打爆你/VIBE CODING/10_PROJECTS_ACTIVE/20260302__python__vibemouse-mac
+
+Use local governance. This is a debug mission for the local PyInstaller-built dist/WhisperKey.app. Do not push, notarize, create GitHub release artifacts, edit .env*, or modify/unload LaunchAgent/system services unless explicitly approved.
+
+Current user report: WhisperKey.app opens, both macOS Privacy permissions were granted and the app was restarted, but pressing the recording hotkey still does nothing. No overlay appears and recording does not visibly start.
+
+First read:
+1. STATUS.md
+2. HANDOFF-20260414-sigtrap-debug.md
+3. whisperkey_mac/app_entry.py
+4. whisperkey_mac/keyboard_listener.py
+5. whisperkey_mac/service_controller.py
+6. whisperkey_mac/help_cmd.py
+
+Start read-only/runtime diagnostics:
+- confirm active processes with pgrep/ps
+- verify bundle identity and codesign
+- run dist/WhisperKey.app/Contents/MacOS/WhisperKey --help
+- launch dist/WhisperKey.app/Contents/MacOS/WhisperKey from Terminal and ask me to press right Option hold-to-record, then cmd+\ hands-free
+- watch for "This process is not trusted", service_start_end, Recording..., recording_start, recording_start_ignored, and Another WhisperKey instance is already running
+
+Important: Current config may use hold_key=alt_r and handsfree_keys=["cmd", "char:\\"]. Do not assume the old/default hands-free combo.
+
+If no key events are observed and permissions look granted, propose a tiny diagnostic patch to add sanitized diag() calls inside HotkeyListener.start/_on_press/_on_release/_start_hold_recording, then run compile/tests/build. Do not log secrets or transcript text.
+```

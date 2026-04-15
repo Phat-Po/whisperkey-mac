@@ -74,3 +74,18 @@ def test_supervisor_stops_after_repeated_crashes(tmp_path: Path):
         assert supervisor.run() == 139
 
     assert supervisor._run_child.call_count == 2
+
+
+def test_supervisor_can_launch_packaged_app_executable():
+    supervisor = Supervisor(app_executable="/Applications/WhisperKey.app/Contents/MacOS/WhisperKey")
+
+    process = unittest.mock.MagicMock()
+    process.wait.return_value = 0
+    with unittest.mock.patch("whisperkey_mac.supervisor.subprocess.Popen", return_value=process) as mock_popen:
+        assert supervisor._run_child() == 0
+
+    args = mock_popen.call_args.args[0]
+    env = mock_popen.call_args.kwargs["env"]
+    assert args == ["/Applications/WhisperKey.app/Contents/MacOS/WhisperKey"]
+    assert env["WHISPERKEY_APP_CHILD"] == "1"
+    assert env["WHISPERKEY_SUPERVISED"] == "1"

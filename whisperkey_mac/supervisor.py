@@ -36,6 +36,7 @@ class Supervisor:
         *,
         app_module: str = APP_MODULE,
         python_executable: str | None = None,
+        app_executable: str | None = None,
         crash_log_path: Path = CRASH_LOG_PATH,
         run_log_path: Path = RUN_LOG_PATH,
         fault_log_path: Path = FAULT_LOG_PATH,
@@ -46,6 +47,7 @@ class Supervisor:
     ) -> None:
         self._app_module = app_module
         self._python_executable = python_executable or sys.executable
+        self._app_executable = app_executable
         self._crash_log_path = Path(crash_log_path)
         self._run_log_path = Path(run_log_path)
         self._fault_log_path = Path(fault_log_path)
@@ -90,8 +92,13 @@ class Supervisor:
         env = os.environ.copy()
         env["WHISPERKEY_SUPERVISED"] = "1"
         env.setdefault("PYTHONUNBUFFERED", "1")
+        if self._app_executable:
+            env["WHISPERKEY_APP_CHILD"] = "1"
+            args = [self._app_executable]
+        else:
+            args = [self._python_executable, "-m", self._app_module]
         self._child = subprocess.Popen(
-            [self._python_executable, "-m", self._app_module],
+            args,
             env=env,
         )
         returncode = self._child.wait()

@@ -21,6 +21,11 @@ dependencies = [
     "pyobjc-framework-ApplicationServices>=10.0",  # AX API for DET-01/DET-02
 ]
 
+[project.optional-dependencies]
+packaging = [
+    "pyinstaller>=6.0,<7",
+]
+
 [project.scripts]
 whisperkey = "whisperkey_mac.main:main"
 whisperkey-supervisor = "whisperkey_mac.supervisor:main"

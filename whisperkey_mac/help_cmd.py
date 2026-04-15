@@ -20,7 +20,7 @@ def _check_process() -> tuple[bool, str]:
     """Check if whisperkey is running in background."""
     try:
         result = subprocess.run(
-            ["pgrep", "-f", "whisperkey_mac.main"],
+            ["pgrep", "-f", "whisperkey_mac.main|WhisperKey.app/Contents/MacOS/WhisperKey"],
             capture_output=True, text=True
         )
         pids = result.stdout.strip().split()
