@@ -8,6 +8,7 @@ from AppKit import (
     NSButton,
     NSClosableWindowMask,
     NSColor,
+    NSComboBox,
     NSFont,
     NSMakeRect,
     NSMiniaturizableWindowMask,
@@ -54,6 +55,26 @@ OUTPUT_LANGUAGE_OPTIONS = [
 ]
 
 MODEL_OPTIONS = ["base", "small", "large-v3-turbo"]
+
+ONLINE_MODEL_OPTIONS = [
+    "gpt-4o-mini",
+    "gpt-4o",
+    "gpt-4.1-mini",
+    "gpt-4.1",
+    "gpt-4.1-nano",
+    "o3-mini",
+    "o4-mini",
+]
+
+
+def _get_input_devices() -> list[str]:
+    """Return names of all available audio input devices."""
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+        return [d["name"] for d in devices if d.get("max_input_channels", 0) > 0]
+    except Exception:
+        return []
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -194,6 +215,18 @@ class SettingsWindowController(NSObject):
         self._model_popup.selectItemWithTitle_(self._config.model_size)
         y -= 44
 
+        self._lbl(view, "Microphone", 20, y)
+        self._mic_popup = self._popup(view, 190, y - 4, 220)
+        self._mic_devices = _get_input_devices()
+        mic_items = ["System Default"] + self._mic_devices
+        self._mic_popup.addItemsWithTitles_(mic_items)
+        current_device = getattr(self._config, "input_device", "")
+        if current_device and current_device in self._mic_devices:
+            self._mic_popup.selectItemWithTitle_(current_device)
+        else:
+            self._mic_popup.selectItemWithTitle_("System Default")
+        y -= 44
+
         self._launch_checkbox = NSButton.alloc().initWithFrame_(NSMakeRect(20.0, y, 280.0, 22.0))
         self._launch_checkbox.setButtonType_(3)  # NSSwitchButton
         self._launch_checkbox.setTitle_("Launch at Login")
@@ -215,7 +248,11 @@ class SettingsWindowController(NSObject):
         y -= 44
 
         self._lbl(view, "Online Model", 20, y)
-        self._online_model_field = self._field(view, self._config.online_correct_model, 190, y - 2, 180)
+        self._online_model_combo = NSComboBox.alloc().initWithFrame_(NSMakeRect(190.0, y - 4.0, 210.0, 26.0))
+        self._online_model_combo.addItemsWithObjectValues_(ONLINE_MODEL_OPTIONS)
+        self._online_model_combo.setStringValue_(self._config.online_correct_model)
+        self._online_model_combo.setNumberOfVisibleItems_(len(ONLINE_MODEL_OPTIONS))
+        view.addSubview_(self._online_model_combo)
         y -= 44
 
         self._lbl(view, "Timeout (sec)", 20, y)
@@ -308,6 +345,9 @@ class SettingsWindowController(NSObject):
         except ValueError:
             timeout = self._config.online_correct_timeout_s
 
+        mic_title = str(self._mic_popup.titleOfSelectedItem())
+        input_device = "" if mic_title == "System Default" else mic_title
+
         updated = replace(
             self._config,
             ui_language=lang,
@@ -321,13 +361,14 @@ class SettingsWindowController(NSObject):
                 or self._config.handsfree_keys
             ),
             online_correct_model=(
-                str(self._online_model_field.stringValue()).strip()
+                str(self._online_model_combo.stringValue()).strip()
                 or self._config.online_correct_model
             ),
             online_prompt_mode=mode,
             online_correct_timeout_s=timeout,
             word_replacements=word_replacements,
             launch_at_login=bool(self._launch_checkbox.state()),
+            input_device=input_device,
         )
         updated.online_correct_enabled = updated.online_prompt_mode != "disabled"
 
@@ -363,8 +404,13 @@ class SettingsWindowController(NSObject):
         self._model_popup.selectItemWithTitle_(config.model_size)
         self._launch_checkbox.setState_(1 if launch_enabled else 0)
         self._select_option(self._mode_popup, PROMPT_MODE_OPTIONS, config.online_prompt_mode, "Disabled")
-        self._online_model_field.setStringValue_(config.online_correct_model)
+        self._online_model_combo.setStringValue_(config.online_correct_model)
         self._timeout_field.setStringValue_(str(config.online_correct_timeout_s))
+        current_device = getattr(config, "input_device", "")
+        if current_device and current_device in self._mic_devices:
+            self._mic_popup.selectItemWithTitle_(current_device)
+        else:
+            self._mic_popup.selectItemWithTitle_("System Default")
         self._word_fix_view.setString_(word_replacements_to_text(getattr(config, "word_replacements", {})))
         self._hold_key_field.setStringValue_(config.hold_key)
         self._handsfree_field.setStringValue_(shortcut_list_to_text(config.handsfree_keys))

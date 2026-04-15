@@ -37,10 +37,12 @@ class AudioRecorder:
                 return
             self._config.temp_dir.mkdir(parents=True, exist_ok=True)
             self._frames = []
+            device = getattr(self._config, "input_device", "") or None
             self._stream = sd.InputStream(
                 samplerate=self._config.sample_rate,
                 channels=1,
                 dtype="float32",
+                device=device,
                 callback=self._callback,
             )
             self._stream.start()

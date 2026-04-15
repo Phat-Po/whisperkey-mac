@@ -32,6 +32,8 @@ class AppConfig:
     # ── Audio ─────────────────────────────────────────────────────────────────
     sample_rate: int = 16000
     min_duration_s: float = 0.3
+    # Input device name for recording; empty string = system default
+    input_device: str = ""
     temp_dir: Path = field(
         default_factory=lambda: Path(tempfile.gettempdir()) / "whisperkey_mac"
     )

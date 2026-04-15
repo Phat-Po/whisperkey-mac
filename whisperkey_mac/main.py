@@ -76,7 +76,6 @@ class App:
         self._service.start_service()
         self._menu_bar = build_menu_bar_controller(
             self._service,
-            self._launch_agent,
             open_settings=self.open_settings,
         )
 
