@@ -6,6 +6,7 @@ PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
 SPEC_FILE="${ROOT_DIR}/packaging/macos/WhisperKey.spec"
 APP_PATH="${ROOT_DIR}/dist/WhisperKey.app"
 ENTITLEMENTS="${ROOT_DIR}/packaging/macos/entitlements.plist"
+ICON_GENERATOR="${ROOT_DIR}/packaging/macos/generate_icon.py"
 
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   echo "[whisperkey] Missing local venv Python: ${PYTHON_BIN}" >&2
@@ -20,6 +21,9 @@ fi
 
 echo "[whisperkey] Cleaning previous app build..."
 rm -rf "${ROOT_DIR}/dist/WhisperKey" "${APP_PATH}" "${ROOT_DIR}/build/WhisperKey"
+
+echo "[whisperkey] Generating app icon..."
+"${PYTHON_BIN}" "${ICON_GENERATOR}"
 
 echo "[whisperkey] Building WhisperKey.app..."
 "${PYTHON_BIN}" -m PyInstaller --clean --noconfirm "${SPEC_FILE}"

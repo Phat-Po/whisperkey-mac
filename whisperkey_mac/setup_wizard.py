@@ -465,6 +465,7 @@ def run_setup(start_after: bool = True) -> AppConfig:
         hold_key=hold_key,
         handsfree_keys=handsfree_keys,
         online_correct_enabled=online_correct_enabled,
+        online_prompt_mode="asr_correction" if online_correct_enabled else "disabled",
     )
     save_config(cfg)
 

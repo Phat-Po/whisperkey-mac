@@ -8,6 +8,7 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metada
 block_cipher = None
 project_root = Path(SPECPATH).parents[1]
 entrypoint = project_root / "whisperkey_mac" / "app_entry.py"
+icon_path = project_root / "build" / "assets" / "WhisperKey.icns"
 
 datas = []
 binaries = []
@@ -112,17 +113,17 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name="WhisperKey.app",
-    icon=None,
+    icon=str(icon_path) if icon_path.exists() else None,
     bundle_identifier="com.phatpo.whisperkey",
     info_plist={
         "CFBundleName": "WhisperKey",
         "CFBundleDisplayName": "WhisperKey",
-        "CFBundleShortVersionString": "0.2.0",
-        "CFBundleVersion": "0.2.0",
+        "CFBundleShortVersionString": "0.2.1",
+        "CFBundleVersion": "0.2.1",
         "LSUIElement": True,
         "LSMinimumSystemVersion": "12.0",
         "NSAppleEventsUsageDescription": "WhisperKey uses Apple Events to paste transcribed text into the active app when direct accessibility insertion is unavailable.",
         "NSMicrophoneUsageDescription": "WhisperKey needs microphone access to record speech for local transcription.",
-        "NSHumanReadableCopyright": "Copyright © 2026 WhisperKey contributors.",
+        "NSHumanReadableCopyright": "Copyright © 2026 Phat-Po.",
     },
 )

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "whisperkey-mac"
-version = "0.2.0"
+version = "0.2.1"
 description = "Voice input for macOS — hold a key to speak, release to transcribe"
 requires-python = ">=3.10"
 dependencies = [

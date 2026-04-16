@@ -31,7 +31,7 @@ Most macOS dictation tools are either online-only or expensive:
 | Fully offline | ✅ | ✅ | ❌ | ❌ |
 | Chinese/English mixed | ✅ | ✅ | ✅ | ⚠️ |
 | Customizable hotkeys | ✅ | ✅ | ❌ | ❌ |
-| No app install needed | ✅ | ❌ | ❌ | — |
+| Direct `.app` download | ✅ | ✅ | ✅ | — |
 
 WhisperKey keeps transcription on your Mac using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). The core dictation flow stays local-first; optional OpenAI correction can be enabled later with your own API key.
 
@@ -64,6 +64,21 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 ---
 
 ## 📦 Installation
+
+### Download the App
+
+For the packaged Apple Silicon build, download `WhisperKey-macOS-arm64-v0.2.1.zip` from the GitHub Releases page, unzip it, and open `WhisperKey.app`.
+
+On first launch, grant both macOS permissions:
+
+- **Input Monitoring** — lets WhisperKey detect the hotkey.
+- **Accessibility** — lets WhisperKey paste text into the active app.
+
+This build is locally signed but not notarized by Apple. If macOS blocks the first launch, right-click `WhisperKey.app`, choose **Open**, then confirm.
+
+The first transcription still downloads the selected Whisper model from HuggingFace. After the model is cached, transcription runs offline.
+
+### Install with Python
 
 ```bash
 pip install git+https://github.com/Phat-Po/whisperkey-mac.git
@@ -149,7 +164,9 @@ Config is saved at `~/.config/whisperkey/config.json`, editable manually:
   "result_max_lines": 3,
   "online_correct_enabled": false,
   "online_correct_provider": "openai",
-  "online_correct_model": "gpt-5-mini"
+  "online_correct_model": "gpt-5.4",
+  "online_prompt_mode": "disabled",
+  "output_language": "auto"
 }
 ```
 
@@ -157,6 +174,7 @@ Config is saved at `~/.config/whisperkey/config.json`, editable manually:
 
 - Disabled by default. Enable it from `whisperkey setup`.
 - Uses your own OpenAI API key. The setup wizard stores it in macOS Keychain.
+- Set **Output Language** in Settings to keep the original language, translate to English, or translate to Chinese after online processing.
 - `OPENAI_API_KEY` overrides the saved Keychain value for debugging or temporary use.
 - If the key is missing, the request times out, or OpenAI returns an error, WhisperKey falls back to the raw transcript automatically.
 

@@ -43,6 +43,27 @@ def test_run_setup_starts_app_when_requested():
 
     assert cfg.ui_language == "zh"
     assert cfg.model_size == "small"
+    assert cfg.online_prompt_mode == "disabled"
+    mock_save.assert_called_once()
+    mock_app.return_value.run.assert_called_once_with()
+
+
+def test_run_setup_enables_online_prompt_mode_when_correction_enabled():
+    with (
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_language", return_value="zh"),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_transcribe_language", return_value=("zh", "zh")),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_model", return_value="small"),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_hotkeys", return_value=("alt_r", ["alt_r", "cmd_r"])),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_permissions"),
+        unittest.mock.patch("whisperkey_mac.setup_wizard._step_online_correction", return_value=True),
+        unittest.mock.patch("whisperkey_mac.setup_wizard.save_config") as mock_save,
+        unittest.mock.patch("whisperkey_mac.launch_agent.LaunchAgentManager.is_loaded", return_value=False),
+        unittest.mock.patch("whisperkey_mac.main.App") as mock_app,
+    ):
+        cfg = run_setup(start_after=True)
+
+    assert cfg.online_correct_enabled is True
+    assert cfg.online_prompt_mode == "asr_correction"
     mock_save.assert_called_once()
     mock_app.return_value.run.assert_called_once_with()
 

@@ -58,6 +58,40 @@ def test_online_correction_returns_corrected_text_from_response():
     assert result == "今天下午三点开会"
 
 
+def test_asr_correction_respects_english_output_language():
+    cfg = _config(output_language="en")
+    fake_client = unittest.mock.MagicMock()
+    fake_client.responses.create.return_value = SimpleNamespace(
+        output_text="Meeting at three this afternoon."
+    )
+
+    with (
+        unittest.mock.patch("whisperkey_mac.online_correct.load_openai_api_key", return_value="sk-test"),
+        unittest.mock.patch("whisperkey_mac.online_correct._build_openai_client", return_value=fake_client),
+    ):
+        result = maybe_correct_online("今天下午三点开灰", cfg)
+
+    assert result == "Meeting at three this afternoon."
+    kwargs = fake_client.responses.create.call_args.kwargs
+    assert "output the result in English" in kwargs["instructions"]
+    assert "Do not translate" not in kwargs["instructions"]
+
+
+def test_asr_correction_output_language_bypasses_cjk_ratio_guard():
+    cfg = _config(output_language="zh")
+    fake_client = unittest.mock.MagicMock()
+    fake_client.responses.create.return_value = SimpleNamespace(output_text="你好，世界")
+
+    with (
+        unittest.mock.patch("whisperkey_mac.online_correct.load_openai_api_key", return_value="sk-test"),
+        unittest.mock.patch("whisperkey_mac.online_correct._build_openai_client", return_value=fake_client),
+    ):
+        result = maybe_correct_online("hello world", cfg)
+
+    assert result == "你好，世界"
+    fake_client.responses.create.assert_called_once()
+
+
 def test_online_correction_returns_plain_text_as_is():
     # Plain text response is returned directly (no JSON parsing)
     cfg = _config()

@@ -18,6 +18,22 @@ _CORRECTION_INSTRUCTIONS = (
     "Do not translate. Do not rewrite style. Do not expand the content."
 )
 
+_CORRECTION_INSTRUCTIONS_TO_EN = (
+    "You correct ASR transcripts, then output the result in English. "
+    "Output only the final text, no explanation. "
+    "Keep the original meaning. Fix only obvious ASR mistakes, homophone substitutions, "
+    "punctuation, and short context errors before translating. "
+    "Do not expand the content or add details."
+)
+
+_CORRECTION_INSTRUCTIONS_TO_ZH = (
+    "You correct ASR transcripts, then output the result in Simplified Chinese. "
+    "Output only the final text, no explanation. "
+    "Keep the original meaning. Fix only obvious ASR mistakes, homophone substitutions, "
+    "punctuation, and short context errors before translating. "
+    "Do not expand the content or add details."
+)
+
 _VOICE_CLEANUP_PROMPT_ZH = """你是一位語音輸入文字清理專家。用戶會貼入語音轉文字的原始逐字稿，你的任務是輸出乾淨、完整、邏輯連貫的版本。
 
 ## 處理規則
@@ -166,6 +182,15 @@ def _voice_cleanup_prompt(config: AppConfig) -> str:
     return _VOICE_CLEANUP_PROMPT_AUTO
 
 
+def _asr_correction_instructions(config: AppConfig) -> str:
+    output_lang = getattr(config, "output_language", "auto")
+    if output_lang == "en":
+        return _CORRECTION_INSTRUCTIONS_TO_EN
+    if output_lang == "zh":
+        return _CORRECTION_INSTRUCTIONS_TO_ZH
+    return _CORRECTION_INSTRUCTIONS
+
+
 def maybe_process_online(text: str, config: AppConfig) -> str:
     normalized = text.strip()
     if not normalized:
@@ -215,7 +240,7 @@ def maybe_process_online(text: str, config: AppConfig) -> str:
         # asr_correction (default)
         response = client.responses.create(
             model=config.online_correct_model,
-            instructions=_CORRECTION_INSTRUCTIONS,
+            instructions=_asr_correction_instructions(config),
             input=f"Transcript:\n{normalized}",
             max_output_tokens=256,
         )
@@ -257,6 +282,8 @@ def _should_process_online(text: str, config: AppConfig, mode: str) -> bool:
         return False
     if len(text) > config.online_correct_max_chars:
         return False
+    if getattr(config, "output_language", "auto") in {"en", "zh"}:
+        return True
     if _cjk_ratio(text) < config.online_correct_min_cjk_ratio:
         return False
     return True

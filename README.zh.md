@@ -31,7 +31,7 @@
 | 完全离线 | ✅ | ✅ | ❌ | ❌ |
 | 中英混合识别 | ✅ | ✅ | ✅ | ⚠️ |
 | 自定义快捷键 | ✅ | ✅ | ❌ | ❌ |
-| 无需安装 .app | ✅ | ❌ | ❌ | — |
+| 直接下载 `.app` | ✅ | ✅ | ✅ | — |
 
 WhisperKey 的核心转录基于 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在本机运行，主链路保持 local-first；如果你需要更强的语义修正，也可以稍后用自己的 OpenAI API key 开启可选的在线纠错。
 
@@ -64,6 +64,21 @@ WhisperKey 的核心转录基于 [faster-whisper](https://github.com/SYSTRAN/fas
 ---
 
 ## 📦 安装
+
+### 下载 App
+
+如果你想直接使用打包版，请到 GitHub Releases 下载 `WhisperKey-macOS-arm64-v0.2.1.zip`，解压后打开 `WhisperKey.app`。
+
+首次启动后，需要开启两个 macOS 权限：
+
+- **输入监控** — 用于监听快捷键。
+- **辅助功能** — 用于把文字粘贴到当前应用。
+
+当前构建已本地签名，但没有 Apple notarization。如果 macOS 首次阻止打开，请右键点击 `WhisperKey.app`，选择 **打开**，再确认启动。
+
+首次转录仍会从 HuggingFace 下载所选 Whisper 模型。模型缓存后，后续转录可离线运行。
+
+### 使用 Python 安装
 
 ```bash
 pip install git+https://github.com/Phat-Po/whisperkey-mac.git
@@ -149,7 +164,9 @@ whisperkey help    # 检查权限、模型、音频
   "result_max_lines": 3,
   "online_correct_enabled": false,
   "online_correct_provider": "openai",
-  "online_correct_model": "gpt-5-mini"
+  "online_correct_model": "gpt-5.4",
+  "online_prompt_mode": "disabled",
+  "output_language": "auto"
 }
 ```
 
@@ -157,6 +174,7 @@ whisperkey help    # 检查权限、模型、音频
 
 - 默认关闭，可通过 `whisperkey setup` 启用。
 - 使用你自己的 OpenAI API key。安装向导会把 key 保存到 macOS Keychain。
+- 可以在 Settings 里设置 **Output Language**，让在线处理后保持原语言、输出英文、或输出中文。
 - 如果设置了 `OPENAI_API_KEY`，它会覆盖 Keychain 中保存的值。
 - 若没有 key、请求超时、或 OpenAI 返回错误，WhisperKey 会自动回退到原始转录文本，不会阻断输入。
 
