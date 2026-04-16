@@ -2,6 +2,35 @@
 
 ---
 
+## 2026-04-15 | gpt-5.4 models + usage tab + ASR plain text; codesign fix planned
+
+**Done this session:**
+- ASR correction switched from JSON output to plain text (`_extract_plain_text`, no `json_object` format flag)
+- Custom mode `max_output_tokens` raised 256 → 1024
+- `ONLINE_MODEL_OPTIONS` prepended with gpt-5.4/mini/nano/pro; default model → `gpt-5.4`
+- Created `whisperkey_mac/usage_log.py`: logs every API call to `~/.config/whisperkey/usage_log.jsonl`
+- `online_correct.py` calls `log_usage()` after each API call (wrapped in try/except)
+- Settings: added 5th "Usage" tab — token totals (today/week/all-time) + disk usage (audio temp + whisper model cache) + Refresh button
+- Updated 2 tests that expected old JSON behavior; all 110 pass
+- Diagnosed TCC permission loss: caused by ad-hoc signing (`--sign -`), CDHash changes each rebuild
+- Handoff written: `HANDOFF-20260415-codesign.md`
+
+**Current state:**
+- All changes committed as `67bd12d`. Tests: 110 passed. App builds cleanly.
+- TCC permission loss on rebuild is NOT fixed yet — that is the next task.
+
+**Next steps:**
+1. Operator: create self-signed cert in Keychain Access (Keychain Access → Certificate Assistant → Create Certificate → Code Signing, name: `WhisperKey Dev`)
+2. Next agent: read `HANDOFF-20260415-codesign.md` and follow Steps 3–8
+3. Change `build_app.sh` + `WhisperKey.spec` to use `"WhisperKey Dev"` instead of `-`
+4. Rebuild twice, confirm hotkey works on second build without re-granting TCC
+
+**Decisions / notes:**
+- Self-signed cert should stabilize TCC on most macOS versions; if not, fallback is free Apple Developer account (instructions in handoff doc)
+- Operator does NOT have $99/year Apple Developer subscription — self-signed path is the first attempt
+
+---
+
 ## 2026-04-15 | Voice cleanup handoff prepared — next: refine feature/prompt
 
 **Done this session:**
