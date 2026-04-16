@@ -25,11 +25,18 @@ class AudioRecorder:
         self._frames: list[np.ndarray] = []
         self._stream: sd.InputStream | None = None
         self._recording = False
+        self._smoothed_level: float = 0.0
 
     @property
     def is_recording(self) -> bool:
         with self._lock:
             return self._recording
+
+    @property
+    def audio_level(self) -> float:
+        """Normalized [0.0, 1.0] RMS-derived audio level. Thread-safe."""
+        with self._lock:
+            return min(1.0, self._smoothed_level * 10.0)
 
     def start(self) -> None:
         with self._lock:
@@ -37,6 +44,7 @@ class AudioRecorder:
                 return
             self._config.temp_dir.mkdir(parents=True, exist_ok=True)
             self._frames = []
+            self._smoothed_level = 0.0
             device = getattr(self._config, "input_device", "") or None
             self._stream = sd.InputStream(
                 samplerate=self._config.sample_rate,
@@ -55,6 +63,7 @@ class AudioRecorder:
             stream = self._stream
             self._stream = None
             self._recording = False
+            self._smoothed_level = 0.0
 
         if stream is not None:
             stream.stop()
@@ -83,6 +92,7 @@ class AudioRecorder:
             self._stream = None
             self._recording = False
             self._frames = []
+            self._smoothed_level = 0.0
 
         if stream is not None:
             stream.stop()
@@ -98,3 +108,5 @@ class AudioRecorder:
         with self._lock:
             if self._recording:
                 self._frames.append(indata.copy())
+                rms = float(np.sqrt(np.mean(indata ** 2)))
+                self._smoothed_level = 0.3 * rms + 0.7 * self._smoothed_level

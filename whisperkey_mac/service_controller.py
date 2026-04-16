@@ -139,11 +139,14 @@ class ServiceController:
             return
         diag("service_start_begin")
         self.ensure_overlay()
+        self._overlay.set_audio_level_provider(lambda: self._recorder.audio_level)
         threading.Thread(target=self._transcriber._ensure_loaded, daemon=True).start()
         diag("service_hotkey_start")
         self._hotkey.start()
         self._service_running = True
         self._notify_status_changed()
+        from whisperkey_mac.overlay import dispatch_to_main
+        dispatch_to_main(self._overlay.show_idle)
         diag("service_start_end")
 
     def stop_service(self) -> None:
@@ -159,7 +162,7 @@ class ServiceController:
         if self._overlay is not None:
             from whisperkey_mac.overlay import dispatch_to_main
 
-            dispatch_to_main(self._overlay.hide_after_paste, 0.0)
+            dispatch_to_main(self._overlay.hide_fully, 0.15)
 
         self._notify_status_changed()
         diag("service_stop_end")
@@ -207,7 +210,8 @@ class ServiceController:
         from whisperkey_mac.overlay import dispatch_to_main
 
         diag("overlay_cancel_hide", dismiss_duration_s=dismiss_duration_s)
-        dispatch_to_main(self._overlay.hide_after_paste, dismiss_duration_s)
+        # Return to idle bubble rather than fully hiding
+        dispatch_to_main(self._overlay.show_idle)
 
     def _frontmost_bundle_id(self) -> str | None:
         try:

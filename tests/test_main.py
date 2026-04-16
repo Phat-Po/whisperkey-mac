@@ -43,7 +43,8 @@ def test_stop_and_transcribe_hides_overlay_when_recording_too_short():
     with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main") as mock_dispatch:
         service._stop_and_transcribe_worker()
 
-    mock_dispatch.assert_called_once_with(service._overlay.hide_after_paste, 0.15)
+    # Cancel returns to idle bubble rather than fully hiding
+    mock_dispatch.assert_called_once_with(service._overlay.show_idle)
 
 
 def test_stop_and_transcribe_returns_before_stopping_audio_stream():
@@ -69,7 +70,8 @@ def test_transcribe_and_inject_hides_overlay_when_no_speech():
     with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main") as mock_dispatch:
         service._transcribe_and_inject(recording)
 
-    mock_dispatch.assert_called_once_with(service._overlay.hide_after_paste, 0.15)
+    # Cancel (no speech) returns to idle bubble
+    mock_dispatch.assert_called_once_with(service._overlay.show_idle)
     service._output.inject.assert_not_called()
 
 
@@ -81,7 +83,8 @@ def test_transcribe_and_inject_hides_overlay_on_transcribe_error():
     with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main") as mock_dispatch:
         service._transcribe_and_inject(recording)
 
-    mock_dispatch.assert_called_once_with(service._overlay.hide_after_paste, 0.15)
+    # Cancel (transcribe error) returns to idle bubble
+    mock_dispatch.assert_called_once_with(service._overlay.show_idle)
     service._output.inject.assert_not_called()
 
 

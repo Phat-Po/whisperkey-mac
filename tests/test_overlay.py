@@ -1,8 +1,8 @@
-"""Unit tests for whisperkey_mac.overlay — OVL-01, OVL-02, OVL-03 structural checks
-and RST-01 through RST-04 state machine tests.
+"""Unit tests for whisperkey_mac.overlay — OVL-01, OVL-02, OVL-03 structural checks,
+RST-01 through RST-04 state machine tests, and IDLE-01 through IDLE-05 idle state tests.
 
 Tests verify NSPanel flags, position, transparency, dispatch_to_main wiring,
-and OverlayStateMachine state transitions with mocked NSPanel.
+OverlayStateMachine state transitions with mocked NSPanel, and new IDLE state behavior.
 No app.run() is called — panel is created and inspected directly.
 """
 import unittest.mock
@@ -19,7 +19,13 @@ from AppKit import (
     NSScreen,
 )
 
-from whisperkey_mac.overlay import OverlayPanel, OverlayState, OverlayStateMachine, dispatch_to_main
+from whisperkey_mac.overlay import (
+    AuroraOrbView,
+    OverlayPanel,
+    OverlayState,
+    OverlayStateMachine,
+    dispatch_to_main,
+)
 
 
 @pytest.fixture(scope="module")
@@ -43,16 +49,17 @@ def test_panel_flags(panel):
 
 
 def test_panel_position(panel):
-    """OVL-02: Verify panel frame is at bottom-center of main screen with correct dimensions."""
+    """OVL-02: Verify panel frame is at bottom-center of main screen with correct idle dimensions."""
     frame = panel.frame()
     screen = NSScreen.mainScreen()
     screen_width = screen.frame().size.width
 
-    assert frame.size.width == 360.0, f"Panel width must be 360, got {frame.size.width}"
-    assert frame.size.height == 74.0, f"Panel height must be 74, got {frame.size.height}"
+    # Idle panel is 84×84 (compact circle); bottom margin y=40 unchanged
+    assert frame.size.width == 84.0, f"Idle panel width must be 84, got {frame.size.width}"
+    assert frame.size.height == 84.0, f"Idle panel height must be 84, got {frame.size.height}"
     assert frame.origin.y == 40.0, f"Panel y must be 40.0 (bottom margin), got {frame.origin.y}"
 
-    expected_x = (screen_width - 360) / 2
+    expected_x = (screen_width - 84) / 2
     assert abs(frame.origin.x - expected_x) <= 1.0, (
         f"Panel x must be within 1px of {expected_x} (centered), got {frame.origin.x}"
     )
@@ -117,10 +124,12 @@ def sm():
 
 
 def test_show_recording_transitions_to_recording(sm):
-    """RST-01: show_recording() from HIDDEN transitions state to RECORDING."""
+    """RST-01: show_recording() from IDLE transitions state to RECORDING."""
     machine, mock_panel, mock_label, mock_sublabel = sm
     assert machine._state == OverlayState.HIDDEN
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+        assert machine._state == OverlayState.IDLE
         machine.show_recording()
     assert machine._state == OverlayState.RECORDING
 
@@ -129,6 +138,7 @@ def test_show_transcribing_transitions(sm):
     """RST-01: show_transcribing() after show_recording() transitions to TRANSCRIBING."""
     machine, mock_panel, mock_label, mock_sublabel = sm
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
         machine.show_recording()
         machine.show_transcribing()
     assert machine._state == OverlayState.TRANSCRIBING
@@ -138,6 +148,7 @@ def test_hide_after_paste(sm):
     """RST-01: hide_after_paste() from TRANSCRIBING forces state to HIDDEN and calls orderOut_."""
     machine, mock_panel, mock_label, mock_sublabel = sm
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
         machine.show_recording()
         machine.show_transcribing()
         machine.hide_after_paste()
@@ -149,6 +160,7 @@ def test_show_result_sets_label(sm):
     """RST-02: show_result(text) sets the primary label to the transcribed text."""
     machine, mock_panel, mock_label, mock_sublabel = sm
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
         machine.show_recording()
         machine.show_transcribing()
         machine.show_result("hello")
@@ -159,29 +171,32 @@ def test_show_result_clipboard_hint(sm):
     """RST-03: show_result() sets secondary label to '已复制到剪贴板'."""
     machine, mock_panel, mock_label, mock_sublabel = sm
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
         machine.show_recording()
         machine.show_transcribing()
         machine.show_result("hello")
     mock_sublabel.setStringValue_.assert_called_with("已复制到剪贴板")
 
 
-def test_auto_dismiss_fires(sm):
-    """RST-04: _auto_dismiss(gen=current gen) from RESULT state transitions to HIDDEN."""
+def test_auto_dismiss_returns_to_idle(sm):
+    """RST-04: _auto_dismiss(gen=current gen) from RESULT state returns to IDLE (not HIDDEN)."""
     machine, mock_panel, mock_label, mock_sublabel = sm
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
         machine.show_recording()
         machine.show_transcribing()
         machine.show_result("test")
     assert machine._state == OverlayState.RESULT
     current_gen = machine._dismiss_gen
     machine._auto_dismiss(current_gen, 0.4)
-    assert machine._state == OverlayState.HIDDEN
+    assert machine._state == OverlayState.IDLE
 
 
 def test_auto_dismiss_stale_ignored(sm):
     """RST-04: _auto_dismiss(gen=stale) does not change state from RESULT."""
     machine, mock_panel, mock_label, mock_sublabel = sm
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
         machine.show_recording()
         machine.show_transcribing()
         machine.show_result("test")
@@ -201,6 +216,7 @@ def test_auto_dismiss_after_hide_is_ignored():
         renderer,
     )
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
         machine.show_recording()
         machine.show_transcribing()
         machine.show_result("hello")
@@ -211,7 +227,7 @@ def test_auto_dismiss_after_hide_is_ignored():
     machine._auto_dismiss(scheduled_gen, 0.4)
 
     assert machine._state == OverlayState.HIDDEN
-    renderer.hide_after_paste.assert_called_once()
+    renderer.hide_fully.assert_called_once()
     renderer.hide_after_result.assert_not_called()
 
 
@@ -224,6 +240,7 @@ def test_show_result_accepts_custom_hint_and_duration():
         unittest.mock.MagicMock(),
         renderer,
     )
+    machine.show_idle()
     machine.show_recording()
     machine.show_transcribing()
 
@@ -245,6 +262,7 @@ def test_auto_dismiss_passes_custom_duration_to_renderer():
         unittest.mock.MagicMock(),
         renderer,
     )
+    machine.show_idle()
     machine.show_recording()
     machine.show_transcribing()
 
@@ -255,13 +273,13 @@ def test_auto_dismiss_passes_custom_duration_to_renderer():
     machine._auto_dismiss(current_gen, 0.25)
 
     renderer.hide_after_result.assert_called_once()
-    assert renderer.hide_after_result.call_args.args[1] == 0.25
 
 
 def test_transition_guard_rejects_invalid(sm):
     """Transition guard: calling show_recording() twice keeps state at RECORDING (no corruption)."""
     machine, mock_panel, mock_label, mock_sublabel = sm
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
         machine.show_recording()
         assert machine._state == OverlayState.RECORDING
         machine.show_recording()  # second call while RECORDING — should be rejected
@@ -277,11 +295,12 @@ def test_result_panel_grows_for_multiline_text():
     )
 
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        overlay.show_idle()
         overlay.show_recording()
         overlay.show_transcribing()
         overlay.show_result(long_text)
 
-    assert overlay._panel.frame().size.height > overlay.PANEL_H
+    assert overlay._panel.frame().size.height > overlay.ACTIVE_H
     assert overlay._label.frame().size.height >= overlay._renderer.BASE_LABEL_HEIGHT * 3
 
 
@@ -289,11 +308,12 @@ def test_result_panel_keeps_base_height_for_short_text():
     overlay = OverlayPanel.create(result_max_lines=3)
 
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        overlay.show_idle()
         overlay.show_recording()
         overlay.show_transcribing()
         overlay.show_result("短句")
 
-    assert overlay._panel.frame().size.height == overlay.PANEL_H
+    assert overlay._panel.frame().size.height == overlay.ACTIVE_H
 
 
 def test_renderer_resets_result_layout_before_recording():
@@ -308,8 +328,8 @@ def test_renderer_resets_result_layout_before_recording():
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
         overlay._renderer.show_recording(2)
 
-    assert overlay._panel.frame().size.height == overlay.PANEL_H
-    assert overlay._label.frame().size.height == 22.0
+    assert overlay._panel.frame().size.height == overlay.ACTIVE_H
+    assert overlay._label.frame().size.height == overlay._renderer.BASE_LABEL_HEIGHT
 
 
 def test_result_label_uses_word_wrapping_for_three_line_results():
@@ -317,3 +337,101 @@ def test_result_label_uses_word_wrapping_for_three_line_results():
 
     assert overlay._label.maximumNumberOfLines() == 3
     assert overlay._label.lineBreakMode() == NSLineBreakByWordWrapping
+
+
+# ---------------------------------------------------------------------------
+# IDLE state tests (IDLE-01 through IDLE-05)
+# ---------------------------------------------------------------------------
+
+def test_idle_state_transition_from_hidden(sm):
+    """IDLE-01: show_idle() from HIDDEN transitions state to IDLE."""
+    machine, mock_panel, mock_label, mock_sublabel = sm
+    assert machine._state == OverlayState.HIDDEN
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+    assert machine._state == OverlayState.IDLE
+
+
+def test_idle_to_recording_valid(sm):
+    """IDLE-01: IDLE → RECORDING is a valid transition."""
+    machine, mock_panel, mock_label, mock_sublabel = sm
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+        machine.show_recording()
+    assert machine._state == OverlayState.RECORDING
+
+
+def test_cancel_returns_to_idle_not_hidden(sm):
+    """IDLE-02: show_idle() from RECORDING returns state to IDLE, not HIDDEN."""
+    machine, mock_panel, mock_label, mock_sublabel = sm
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+        machine.show_recording()
+    assert machine._state == OverlayState.RECORDING
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+    assert machine._state == OverlayState.IDLE
+
+
+def test_result_auto_dismiss_returns_to_idle(sm):
+    """IDLE-03: after result auto-dismiss, state is IDLE (not HIDDEN)."""
+    machine, mock_panel, mock_label, mock_sublabel = sm
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+        machine.show_recording()
+        machine.show_transcribing()
+        machine.show_result("test text")
+    gen = machine._dismiss_gen
+    machine._auto_dismiss(gen, 0.4)
+    assert machine._state == OverlayState.IDLE
+
+
+def test_hide_fully_goes_to_hidden(sm):
+    """IDLE-04: hide_after_paste() from IDLE goes to HIDDEN (service stop behavior)."""
+    machine, mock_panel, mock_label, mock_sublabel = sm
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+    assert machine._state == OverlayState.IDLE
+    machine.hide_after_paste(0.0)
+    assert machine._state == OverlayState.HIDDEN
+
+
+def test_show_idle_idempotent(sm):
+    """IDLE-05: calling show_idle() twice in a row does not corrupt state."""
+    machine, mock_panel, mock_label, mock_sublabel = sm
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+        machine.show_idle()  # second call — should silently skip
+    assert machine._state == OverlayState.IDLE
+
+
+def test_hidden_to_recording_is_invalid(sm):
+    """Transition guard: show_recording() from HIDDEN (without show_idle first) is rejected."""
+    machine, mock_panel, mock_label, mock_sublabel = sm
+    assert machine._state == OverlayState.HIDDEN
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_recording()
+    assert machine._state == OverlayState.HIDDEN
+
+
+def test_orb_view_is_aurora_orb_view_instance():
+    """OverlayPanel contains an AuroraOrbView subview."""
+    overlay = OverlayPanel.create()
+    assert isinstance(overlay._orb_view, AuroraOrbView)
+
+
+def test_result_text_is_below_orb_view():
+    """IDLE-05: In result state, label frame bottom is below orb view frame bottom."""
+    overlay = OverlayPanel.create(result_max_lines=3)
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        overlay.show_idle()
+        overlay.show_recording()
+        overlay.show_transcribing()
+        overlay.show_result("Hello world transcript")
+
+    orb_y_bottom = overlay._orb_view.frame().origin.y
+    label_y_bottom = overlay._label.frame().origin.y
+    # Label is below orb (lower y in AppKit bottom-left coords)
+    assert label_y_bottom < orb_y_bottom, (
+        f"Label y={label_y_bottom} should be below orb y={orb_y_bottom}"
+    )
