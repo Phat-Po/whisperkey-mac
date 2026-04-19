@@ -328,8 +328,51 @@ def test_renderer_resets_result_layout_before_recording():
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
         overlay._renderer.show_recording(2)
 
-    assert overlay._panel.frame().size.height == overlay.ACTIVE_H
+    assert overlay._panel.frame().size.width == overlay.PANEL_W
+    assert overlay._panel.frame().size.height == overlay.PANEL_H
     assert overlay._label.frame().size.height == overlay._renderer.BASE_LABEL_HEIGHT
+
+
+def test_recording_stays_compact_ring_only():
+    overlay = OverlayPanel.create(result_max_lines=3)
+
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        overlay.show_idle()
+        overlay.show_recording()
+
+    assert overlay._panel.frame().size.width == overlay.PANEL_W
+    assert overlay._panel.frame().size.height == overlay.PANEL_H
+    assert overlay._label.isHidden() is True
+    assert overlay._sublabel.isHidden() is True
+
+
+def test_transcribing_stays_compact_ring_only():
+    overlay = OverlayPanel.create(result_max_lines=3)
+
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        overlay.show_idle()
+        overlay.show_recording()
+        overlay.show_transcribing()
+
+    assert overlay._panel.frame().size.width == overlay.PANEL_W
+    assert overlay._panel.frame().size.height == overlay.PANEL_H
+    assert overlay._label.isHidden() is True
+    assert overlay._sublabel.isHidden() is True
+
+
+def test_result_still_expands_for_text_after_compact_transcribing():
+    overlay = OverlayPanel.create(result_max_lines=3)
+
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        overlay.show_idle()
+        overlay.show_recording()
+        overlay.show_transcribing()
+        overlay.show_result("短句")
+
+    assert overlay._panel.frame().size.width == overlay.ACTIVE_W
+    assert overlay._panel.frame().size.height == overlay.ACTIVE_H
+    assert overlay._label.isHidden() is False
+    assert overlay._sublabel.isHidden() is False
 
 
 def test_result_label_uses_word_wrapping_for_three_line_results():

@@ -42,6 +42,15 @@ class Transcriber:
         diag("transcriber_transcribe_end", has_text=bool(text))
         return text
 
+    def _resolve_local_model_path(self, model_size: str) -> str | None:
+        import os
+        hub_cache = Path(os.path.expanduser("~/.cache/huggingface/hub"))
+        snapshots_dir = hub_cache / f"models--Systran--faster-whisper-{model_size}" / "snapshots"
+        if not snapshots_dir.exists():
+            return None
+        snapshots = sorted(snapshots_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+        return str(snapshots[0]) if snapshots else None
+
     def _ensure_loaded(self) -> None:
         if self._model is not None:
             diag("transcriber_model_already_loaded")
@@ -50,18 +59,23 @@ class Transcriber:
             if self._model is not None:
                 diag("transcriber_model_already_loaded")
                 return
+            model_size = self._config.model_size
+            local_path = self._resolve_local_model_path(model_size)
+            model_arg = local_path or model_size
             diag(
                 "transcriber_model_load_start",
-                model_size=self._config.model_size,
+                model_size=model_size,
+                local_path=local_path,
                 device=self._config.device,
                 compute_type=self._config.compute_type,
             )
             print(
-                f"[whisperkey] Loading Whisper model '{self._config.model_size}' "
+                f"[whisperkey] Loading Whisper model '{model_size}' "
+                f"({'local' if local_path else 'download'}) "
                 f"on {self._config.device} ({self._config.compute_type}) ..."
             )
             self._model = WhisperModel(
-                self._config.model_size,
+                model_arg,
                 device=self._config.device,
                 compute_type=self._config.compute_type,
             )

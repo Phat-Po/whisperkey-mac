@@ -6,7 +6,16 @@ from pathlib import Path
 
 
 APP_SUPPORT_DIR = Path.home() / "Library" / "Application Support" / "WhisperKey"
-CLI_COMMANDS = {"setup", "permissions", "settings", "help", "--help", "-h", "detect"}
+CLI_COMMANDS = {
+    "setup",
+    "permissions",
+    "settings",
+    "help",
+    "--help",
+    "-h",
+    "detect",
+    "frozen-model-check",
+}
 
 
 def _prepare_packaged_runtime() -> None:

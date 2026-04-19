@@ -2,6 +2,89 @@
 
 ---
 
+## 2026-04-19 | VoiceInput pill redesign planned — handoff ready for next agent
+
+**Done this session:**
+- User rejected aurora orb design; wants new overlay matching VoiceInput component (molecule-lab-rushil/21st.dev).
+- Fetched and analyzed VoiceInput React source code.
+- Planned full native PyObjC translation of the design.
+- Created handoff doc: `HANDOFF-20260419-voiceinput-redesign.md`.
+
+**Current state:**
+- No code changed this session. Uncommitted changes exist from prior session (overlay.py, tests, app_entry, etc.).
+- The aurora orb overlay is still live in `whisperkey_mac/overlay.py`.
+- Next agent must snapshot first, then replace `AuroraOrbView` + aurora renderer with VoiceInput pill design.
+
+**Next steps:**
+1. Read `HANDOFF-20260419-voiceinput-redesign.md`.
+2. Snapshot: `git add -A && git commit -m "snapshot: before voiceinput pill redesign"`.
+3. Rewrite `whisperkey_mac/overlay.py` — only this file.
+4. Run `pytest tests/test_overlay.py tests/test_keyboard_listener.py -q` — all must pass.
+5. Tell user to visually verify overlay.
+
+**Decisions / notes:**
+- No React, npm, shadcn, or WebView — pure PyObjC/Core Graphics translation only.
+- Do NOT run `build_app.sh` — breaks TCC permissions. Terminal relaunch only.
+- Do NOT git push without operator confirmation.
+- Keep RESULT state (shows transcribed text) — that's core functionality.
+
+---
+
+## 2026-04-17 | Orb shader-match attempt rejected — next: thick smooth torus renderer
+
+**Done this session:**
+- Implemented a first native `AuroraOrbView` ring-only attempt in `whisperkey_mac/overlay.py`.
+- Verified functional behavior still passed:
+  - `./.venv/bin/python -m pytest tests/test_overlay.py tests/test_keyboard_listener.py -q` -> `42 passed`
+  - `./.venv/bin/python -m compileall whisperkey_mac` -> passed
+- User rebuilt/previewed and rejected the visual result as still far from the supplied React/OGL shader.
+- Refreshed handoff: `HANDOFF-20260417-orb-redesign.md`.
+
+**Current state:**
+- Current source draws a small noisy segmented ring. It is functionally safe but visually wrong.
+- The target is a thick, smooth, luminous torus: transparent center, broad blurred glow, cyan-left/purple-right gradient, dark-blue bridge, and an integrated white-blue upper-right crescent highlight.
+- The next agent must not repeat the thin noisy arc/stroke approach.
+
+**Next steps:**
+1. Read `HANDOFF-20260417-orb-redesign.md`.
+2. Rework `AuroraOrbView` from segmented noisy strokes into a broad layered annular alpha-field approximation.
+3. Preserve compact recording/transcribing behavior and result expansion.
+4. Validate focused tests and compile check.
+
+**Decisions / constraints:**
+- Native Python/PyObjC only; no React, Tailwind, shadcn, `ogl`, WebView, or recording button.
+- Do not touch saved config, bundle id, LaunchAgent path, permissions identity, packaging, or service state unless explicitly approved.
+- Rebuild remains a separate explicit approval because ad-hoc signing can force macOS TCC reauthorization.
+
+---
+
+## 2026-04-17 | Orb redesign handoff prepared — next: native ring-only visual match
+
+**Done this session:**
+- Confirmed the functional hotkey/compact-overlay changes are present in source.
+- Confirmed the local `dist/WhisperKey.app` timestamp was newer than the changed source files during the check, so a rebuild did not appear necessary for the already-working version.
+- Ran focused verification: `./.venv/bin/python -m pytest tests/test_overlay.py tests/test_keyboard_listener.py -q` -> `42 passed`.
+- Created handoff: `HANDOFF-20260417-orb-redesign.md`.
+
+**Current state:**
+- The app works functionally, but the user rejected the current overlay design as visually far from the supplied React/OGL reference.
+- Next task is design-only: replicate the reference as a native PyObjC/Core Graphics aurora ring, not a React/WebView component.
+- User explicitly does not want rebuild, Privacy & Security reauthorization, config changes, or service interruption as part of the redesign.
+
+**Next steps:**
+1. Next agent reads `HANDOFF-20260417-orb-redesign.md`.
+2. Preserve the existing compact recording/transcribing behavior and result expansion.
+3. Redesign `AuroraOrbView` in `whisperkey_mac/overlay.py` so the compact overlay is ring-first with transparent center, purple/cyan/dark-blue palette, organic noisy edge, moving highlight, and voice-level pulse.
+4. Validate with focused overlay/hotkey tests before any visual runtime check.
+
+**Decisions / constraints:**
+- Do not add a recording button.
+- Do not install React, Tailwind, shadcn, `ogl`, or a WebView runtime.
+- Do not change bundle id, LaunchAgent path, packaging identity, saved config, or permissions strings unless explicitly approved.
+- Do not run `packaging/macos/build_app.sh` unless the user explicitly approves the rebuild and possible TCC permission impact.
+
+---
+
 ## 2026-04-15 | gpt-5.4 models + usage tab + ASR plain text; codesign fix planned
 
 **Done this session:**

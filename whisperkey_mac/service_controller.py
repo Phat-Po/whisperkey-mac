@@ -140,7 +140,6 @@ class ServiceController:
         diag("service_start_begin")
         self.ensure_overlay()
         self._overlay.set_audio_level_provider(lambda: self._recorder.audio_level)
-        threading.Thread(target=self._transcriber._ensure_loaded, daemon=True).start()
         diag("service_hotkey_start")
         self._hotkey.start()
         self._service_running = True

@@ -188,6 +188,43 @@ def detect() -> None:
         listener.join()
 
 
+def frozen_model_check() -> None:
+    enable_faulthandler()
+    diag("frozen_model_check_start")
+
+    from faster_whisper import WhisperModel
+    import ctranslate2
+
+    cfg = load_config()
+    from whisperkey_mac.transcriber import Transcriber
+
+    local_path = Transcriber(cfg)._resolve_local_model_path(cfg.model_size)
+    model_arg = local_path or cfg.model_size
+
+    print("[whisperkey] Frozen model check")
+    print(f"  faster-whisper model: {cfg.model_size}")
+    print(f"  ctranslate2 version: {getattr(ctranslate2, '__version__', '?')}")
+    print(f"  model path: {model_arg}")
+    print(f"  device: {cfg.device}")
+    print(f"  compute type: {cfg.compute_type}")
+    diag(
+        "frozen_model_check_construct_start",
+        model_size=cfg.model_size,
+        local_path=local_path,
+        device=cfg.device,
+        compute_type=cfg.compute_type,
+    )
+    model = WhisperModel(
+        model_arg,
+        device=cfg.device,
+        compute_type=cfg.compute_type,
+    )
+    diag("frozen_model_check_construct_end")
+    del model
+    print("[whisperkey] Frozen model check succeeded.")
+    diag("frozen_model_check_end")
+
+
 def main() -> None:
     args = sys.argv[1:]
 
@@ -208,6 +245,10 @@ def main() -> None:
 
     if args and args[0] == "detect":
         detect()
+        return
+
+    if args and args[0] == "frozen-model-check":
+        frozen_model_check()
         return
 
     # First-run: no config file → launch setup (only in interactive terminal)
