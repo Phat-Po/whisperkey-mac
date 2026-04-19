@@ -17,4 +17,10 @@ build/
 
 # User config (stored in ~/.config/whisperkey/, not tracked here)
 config.json
-!.planning/config.json
+
+# Internal development docs (not for public release)
+CONTEXT.md
+STATUS.md
+HANDOFF-*.md
+*-prompt.md
+.planning/
