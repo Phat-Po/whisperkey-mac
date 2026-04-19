@@ -15,7 +15,7 @@
 
 **Hold a key to speak. Release to transcribe.**
 
-Local voice input for macOS — offline, free, no subscriptions.
+Local voice input for macOS — offline, free, no subscriptions. Optional on-device or cloud post-processing to clean up your speech into polished writing.
 
 📖 [查看简体中文文档](README.zh.md)
 
@@ -28,63 +28,79 @@ Most macOS dictation tools are either online-only or expensive:
 | | WhisperKey | SuperWhisper | Wispr Flow | macOS Dictation |
 |---|:---:|:---:|:---:|:---:|
 | Free & open source | ✅ | ❌ ($250 lifetime) | ❌ ($15/mo) | ✅ |
-| Fully offline | ✅ | ✅ | ❌ | ❌ |
+| Fully offline STT | ✅ | ✅ | ❌ | ❌ |
 | Chinese/English mixed | ✅ | ✅ | ✅ | ⚠️ |
+| Voice cleanup (filler removal, re-writing) | ✅ | ✅ | ✅ | ❌ |
+| Custom word replacements | ✅ | ⚠️ | ⚠️ | ❌ |
+| Token usage dashboard | ✅ | ❌ | ❌ | ❌ |
 | Customizable hotkeys | ✅ | ✅ | ❌ | ❌ |
 | Direct `.app` download | ✅ | ✅ | ✅ | — |
 
-WhisperKey keeps transcription on your Mac using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). The core dictation flow stays local-first; optional OpenAI correction can be enabled later with your own API key.
+WhisperKey keeps transcription on your Mac using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). The core dictation flow stays local-first; optional OpenAI-powered cleanup and correction can be enabled with your own API key.
 
 ---
 
 ## ✨ Features
 
-| | |
-|---|---|
-| 🎤 | Hold Right Option ⌥ to record, release to transcribe |
-| 🔁 | Hands-free mode: Option + Command to toggle continuous recording |
-| 🌍 | Supports Chinese, English and 90+ languages |
-| 💾 | Runs fully offline — no internet required after first run |
-| 📋 | Auto-copies and pastes transcription result into the active app |
-| 🪟 | Result HUD expands to up to 3 lines for longer transcripts |
-| ✨ | Optional OpenAI online correction using your own API key |
-| 🔧 | Interactive bilingual setup wizard (zh/en) |
-| 🚀 | Auto-start on login via macOS LaunchAgent |
-| ⌨️ | Fully customizable hotkeys |
+### 🎙️ Core dictation
+- **Hold-to-talk** — hold Right Option ⌥ to record, release to transcribe
+- **Hands-free mode** — Right Option ⌥ + Right Command ⌘ toggles continuous recording
+- **90+ languages** with Chinese/English mixed handling
+- **Fully offline STT** via faster-whisper — no internet after the first model download
+- **Auto-paste** directly into the active app
+- **VoiceInput pill overlay** — compact, unobtrusive visual feedback for recording, transcribing, and result states
+
+### 🧼 Optional AI post-processing
+- **Voice Cleanup** — removes "um", "uh", fillers, repetition, and rewrites rambling speech into clean prose
+- **ASR Correction** — fixes homophones, punctuation, and obvious transcription errors on short texts
+- **Custom prompt** — bring your own instruction for domain-specific processing
+- **Output Language** — keep original, translate to English, or translate to Chinese after processing
+- Uses your own OpenAI API key, stored in macOS Keychain (never committed)
+
+### ⚙️ Full-featured control
+- **Settings GUI** with 5 tabs: General, Voice, Word Fix, Usage, Advanced
+- **Menu bar app** — at-a-glance status, pause/resume service, quick Settings access
+- **Word Replacements dictionary** — map `cloude → Claude`, `gpt → GPT`, and similar corrections automatically
+- **Token usage dashboard** — track OpenAI consumption (today / this week / all time) and disk footprint
+- **Microphone picker** — select any connected input device
+- **Fully customizable hotkeys** — hold key and hands-free combo
+- **Launch at Login** toggle (managed via macOS LaunchAgent)
+- **Bilingual UI** (zh / en) throughout setup, Settings, and menu bar
+- **Graceful fallback** — if the cloud request fails or times out, raw transcript is pasted instead
 
 ---
 
 ## 📋 Requirements
 
-- **macOS** 12 Monterey or later
-- **Python 3.10+** (recommended via Homebrew)
+- **macOS** 12 Monterey or later (Apple Silicon recommended)
+- **Python 3.10+** (if installing from source; not needed for the packaged `.app`)
 - **Microphone**
-- System permissions: **Accessibility** + **Input Monitoring**
+- System permissions: **Input Monitoring** + **Accessibility**
+- *(Optional)* OpenAI API key for post-processing
 
 ---
 
 ## 📦 Installation
 
-### Download the App
+### Option A — Download the App (recommended)
 
-For the packaged Apple Silicon build, download `WhisperKey-macOS-arm64-v0.2.1.zip` from the GitHub Releases page, unzip it, and open `WhisperKey.app`.
+Grab `WhisperKey-macOS-arm64-v0.2.2.zip` from the [Releases page](https://github.com/Phat-Po/whisperkey-mac/releases), unzip, and move `WhisperKey.app` to `/Applications`.
 
-On first launch, grant both macOS permissions:
+On first launch, grant the two macOS permissions:
+- **Input Monitoring** — lets WhisperKey detect the hotkey
+- **Accessibility** — lets WhisperKey paste text into the active app
 
-- **Input Monitoring** — lets WhisperKey detect the hotkey.
-- **Accessibility** — lets WhisperKey paste text into the active app.
+This build is locally signed but not notarized by Apple. If macOS blocks the first launch, right-click `WhisperKey.app` → **Open** → confirm.
 
-This build is locally signed but not notarized by Apple. If macOS blocks the first launch, right-click `WhisperKey.app`, choose **Open**, then confirm.
+The first transcription downloads the selected Whisper model from HuggingFace (internet required once). After that, transcription runs fully offline.
 
-The first transcription still downloads the selected Whisper model from HuggingFace. After the model is cached, transcription runs offline.
-
-### Install with Python
+### Option B — Install from source
 
 ```bash
 pip install git+https://github.com/Phat-Po/whisperkey-mac.git
 ```
 
-Or clone and install for development:
+Or clone for development:
 
 ```bash
 git clone https://github.com/Phat-Po/whisperkey-mac.git
@@ -93,34 +109,32 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
-> **Tip for macOS**: if `python3 -V` is below 3.10, use a Homebrew Python explicitly instead of the system interpreter. For example: `python3.12 -m venv .venv` and `python3.12 -m pip install -e .`.
+> **macOS tip**: if `python3 -V` is below 3.10, use a Homebrew Python explicitly: `python3.12 -m venv .venv`.
 
-> **Note**: The selected Whisper model is auto-downloaded from HuggingFace on first transcription (internet required). All subsequent runs are fully offline.
-
-> **Cache behavior**: reinstalling WhisperKey or rebuilding a local `venv` does **not** re-download an already cached model. Existing model files under `~/.cache/huggingface/hub` are reused unless you delete them manually.
+> **Cache behavior**: reinstalling or rebuilding a venv does **not** re-download an already cached model. Model files under `~/.cache/huggingface/hub` are reused unless deleted manually.
 
 ---
 
 ## 🚀 Quick Start
 
-### First Run
+### First run
 
 ```bash
 whisperkey
 ```
 
-The first run automatically launches an interactive setup wizard, guiding you through:
+An interactive setup wizard guides you through:
 
 1. **UI language** — English or 中文
 2. **Transcription language** — English / Chinese / Mixed / Other
 3. **Whisper model** — base / small / large-v3-turbo
-4. **Hotkeys** — use defaults or define your own
+4. **Hotkeys** — defaults or your own
 5. **System permissions** — guided walkthrough
-6. **Online correction (optional)** — enable OpenAI correction and save your API key in macOS Keychain
+6. **AI post-processing (optional)** — pick a mode and save your OpenAI API key to Keychain
 
-### Subsequent Use
+### Daily use
 
-WhisperKey runs in the background — no window needed.
+WhisperKey runs in the background as a menu bar app — no window needed.
 
 | Action | Hotkey |
 |---|---|
@@ -130,55 +144,135 @@ WhisperKey runs in the background — no window needed.
 
 ---
 
-## ⌨️ Hotkeys
+## 🎛️ Post-Processing Modes
 
-Default hotkeys:
+After local transcription, WhisperKey can optionally pipe the result through OpenAI for cleanup. Three modes are available in **Settings → Voice → Processing Mode**:
+
+| Mode | What it does | Best for | Recommended timeout |
+|---|---|---|---|
+| **Disabled** | Pastes raw Whisper output | Fastest; no cloud calls | — |
+| **ASR Correction** | Fixes homophones, missing punctuation, obvious transcription errors. Minimal rewriting. | Short phrases, command-style input, technical terms | 3 sec |
+| **Voice Cleanup** ⭐ | Removes filler words (*um / uh / 就是 / 那個*), deduplicates hesitation, reorganizes rambling thoughts into clean prose. Preserves all specifics (numbers, names, constraints). | Longer messages, notes, drafting emails / docs | 8 sec |
+| **Custom** | Runs your own system prompt | Domain-specific rewriting (formal, code, translation styles) | 8 sec |
+
+All modes gracefully fall back to the raw transcript on timeout or API error.
+
+---
+
+## 🍎 Menu Bar Controls
+
+WhisperKey lives in the macOS menu bar. Click the icon to access:
+
+- **Status line** — running / paused / waiting for permissions
+- **Pause / Resume** — temporarily stop hotkey listening without quitting (handy for games or screen recording)
+- **Settings…** — opens the full Settings GUI
+- **Quit WhisperKey**
+
+The menu bar title updates live based on service state.
+
+---
+
+## ⚙️ Settings GUI
+
+Open via **Menu bar → Settings…** — five tabs cover everything:
+
+### General
+- Interface Language (zh / en)
+- Transcription Language (Auto / zh / en / other ISO code)
+- **Output Language** (match input / translate to English / translate to Chinese)
+- Whisper Model (`base` / `small` / `large-v3-turbo`)
+- **Microphone** — pick any connected input device (or system default)
+- **Launch at Login** toggle
+
+### Voice
+- **Processing Mode** (Disabled / ASR Correction / Voice Cleanup / Custom)
+- **Online Model** (e.g. `gpt-5.4` — customizable)
+- **Timeout** in seconds (recommended: 8 for Voice Cleanup, 3 for ASR Correction)
+
+### Word Fix
+A personal dictionary that post-processes every transcript. Useful for brand names the STT model consistently mishears.
 
 ```
-Right Option ⌥  (hold)      →  Start recording
-Right Option ⌥  (release)   →  Stop + transcribe + paste
-Right Option ⌥ + Right ⌘    →  Toggle hands-free mode
+cloude → Claude
+cloud ai → Claude AI
+open ei eye → OpenAI
 ```
 
-Run `whisperkey setup` to customize hotkeys.
+- One replacement per line
+- Use `→` or `->`
+- Case-insensitive, longest match wins
+- Runs locally; no cloud call needed
+
+### Usage
+Live dashboard showing:
+- OpenAI token consumption (input / output, today / this week / all time)
+- Disk footprint — audio temp files + Whisper model cache paths
+
+### Advanced
+- **Hold Key** — any pynput key name (e.g. `alt_r`, `cmd_r`, `f13`)
+- **Handsfree Keys** — comma-separated combo (e.g. `alt_r, cmd_r`)
+- **API Key** — paste a new OpenAI key; stored in macOS Keychain
+
+---
+
+## 📊 Usage Tracking
+
+The **Usage** tab gives you transparent visibility into your OpenAI spend:
+
+- Per-day, per-week, and lifetime input/output token counts
+- Disk usage for audio temp files (`/tmp/whisperkey_mac/`)
+- Disk usage for the Whisper model cache (`~/.cache/huggingface/hub/`)
+- Refresh button for live updates
+
+No analytics are sent anywhere — everything is read from local logs.
 
 ---
 
 ## 🔧 Configuration
 
-```bash
-whisperkey setup   # re-run setup wizard
-whisperkey permissions  # open the right macOS permission panes + print the app path to authorize
-whisperkey help    # troubleshoot permissions, model, audio
-```
-
-Config is saved at `~/.config/whisperkey/config.json`, editable manually:
+For advanced or scripted setups, config is stored at `~/.config/whisperkey/config.json`:
 
 ```json
 {
   "ui_language": "en",
   "transcribe_language": "auto",
+  "output_language": "auto",
   "model_size": "small",
+  "input_device": "",
   "hold_key": "alt_r",
   "handsfree_keys": ["alt_r", "cmd_r"],
+  "auto_paste": true,
   "result_max_lines": 3,
+  "online_prompt_mode": "disabled",
   "online_correct_enabled": false,
   "online_correct_provider": "openai",
   "online_correct_model": "gpt-5.4",
-  "online_prompt_mode": "disabled",
-  "output_language": "auto"
+  "online_correct_timeout_s": 8.0,
+  "online_prompt_custom_text": "",
+  "word_replacements": {},
+  "launch_at_login": false
 }
 ```
 
-### Optional Online Correction
+### Environment variable overrides
 
-- Disabled by default. Enable it from `whisperkey setup`.
-- Uses your own OpenAI API key. The setup wizard stores it in macOS Keychain.
-- Set **Output Language** in Settings to keep the original language, translate to English, or translate to Chinese after online processing.
-- `OPENAI_API_KEY` overrides the saved Keychain value for debugging or temporary use.
-- If the key is missing, the request times out, or OpenAI returns an error, WhisperKey falls back to the raw transcript automatically.
+Useful for LaunchAgents and CI:
 
-### Model Options
+| Variable | Overrides |
+|---|---|
+| `OPENAI_API_KEY` | Keychain-stored API key |
+| `WHISPERKEY_MODEL` | `model_size` |
+| `WHISPERKEY_COMPUTE_TYPE` | `compute_type` (default `int8`) |
+| `WHISPERKEY_DEVICE` | `device` (default `cpu`) |
+| `WHISPERKEY_LANGUAGE` | Whisper language hint |
+| `WHISPERKEY_SAMPLE_RATE` | Recording sample rate |
+| `WHISPERKEY_AUTO_PASTE` | `1` / `0` |
+| `WHISPERKEY_RESULT_MAX_LINES` | HUD line cap |
+| `WHISPERKEY_ONLINE_CORRECT` | `1` / `0` |
+| `WHISPERKEY_ONLINE_CORRECT_MODEL` | OpenAI model name |
+| `WHISPERKEY_ONLINE_PROMPT_MODE` | `disabled` / `asr_correction` / `voice_cleanup` / `custom` |
+
+### Model options
 
 | Model | Size | Best for |
 |---|---|---|
@@ -203,7 +297,9 @@ For source installs this is usually Python.app:
 ```
 /opt/homebrew/Cellar/python@3.xx/x.x.x/Frameworks/Python.framework/Versions/3.xx/Resources/Python.app
 ```
-For the packaged build, authorize `dist/WhisperKey.app`.
+For the packaged build, authorize `WhisperKey.app`.
+
+> **Note**: each packaged build has a different CDHash, so after upgrading the `.app` you must re-authorize both permissions.
 
 ---
 
@@ -215,13 +311,16 @@ whisperkey help
 
 Automatically checks: process status · Accessibility · Input Monitoring · audio devices · model files · config
 
-**No response to hotkeys** → check Input Monitoring permission
-**Transcription not pasting** → check Accessibility permission
-**Online correction not applying** → re-run `whisperkey setup` or set `OPENAI_API_KEY`
-**Electron/Web chat apps log `inject_path=applescript`** → expected for inputs that do not expose AX roles cleanly; targeted paste is the compatibility path
+| Symptom | Fix |
+|---|---|
+| No response to hotkeys | Check **Input Monitoring** permission |
+| Transcription not pasting | Check **Accessibility** permission |
+| Post-processing not applying | Re-run `whisperkey setup` or set `OPENAI_API_KEY`; check Settings → Voice → Processing Mode |
+| `inject_path=applescript` in logs | Expected for Electron/web chat apps; it's the compatibility paste path |
+| Upgraded `.app` stopped working | Re-authorize Input Monitoring + Accessibility (CDHash changed) |
 
 ```bash
-tail -f /tmp/whisperkey.log                            # live logs
+tail -f /tmp/whisperkey.log                           # live logs
 launchctl kickstart -k gui/$(id -u)/com.whisperkey    # restart service
 ```
 
@@ -229,6 +328,8 @@ launchctl kickstart -k gui/$(id -u)/com.whisperkey    # restart service
 
 <details>
 <summary>🚀 Auto-start on Login (LaunchAgent setup)</summary>
+
+The Settings GUI **Launch at Login** toggle manages this automatically. Manual setup (for source installs) is below:
 
 ```bash
 # 1. Install locally (not on an external drive)
@@ -279,7 +380,7 @@ EOF
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
 
-This LaunchAgent pattern starts the crash supervisor, which launches the app, writes crash details to `/tmp/whisperkey-last-crash.log`, and sends a macOS notification if the app exits unexpectedly.
+The LaunchAgent starts a crash supervisor, which launches the app, writes crash details to `/tmp/whisperkey-last-crash.log`, and sends a macOS notification on unexpected exit.
 
 </details>
 
@@ -300,17 +401,25 @@ whisperkey help   # troubleshoot
 ```
 whisperkey_mac/
 ├── main.py               # Entry point, CLI routing
+├── app_entry.py          # Menu bar app bootstrap
+├── menu_bar.py           # Menu bar item + state sync
+├── settings_window.py    # Settings GUI (5 tabs)
 ├── config.py             # Config loading/saving (JSON + env vars)
 ├── i18n.py               # zh/en string dictionary
 ├── keyboard_listener.py  # Hold-key + hands-free hotkey logic
 ├── audio.py              # Audio recording (sounddevice)
 ├── transcriber.py        # Whisper STT (faster-whisper)
-├── online_correct.py     # Optional OpenAI correction pipeline
+├── online_correct.py     # Optional OpenAI post-processing pipeline
 ├── keychain.py           # macOS Keychain helpers for OpenAI API key
 ├── output.py             # Text injection (clipboard + focused-app paste)
+├── overlay.py            # VoiceInput pill overlay
+├── usage_log.py          # Token consumption tracking
+├── launch_agent.py       # LaunchAgent install/uninstall helpers
 ├── setup_wizard.py       # Interactive terminal setup
 └── help_cmd.py           # Troubleshooter
 ```
+
+Packaging: `packaging/macos/build_app.sh` (PyInstaller + codesign) → `packaging/macos/package_release.sh` (zip for Releases).
 
 </details>
 
@@ -324,7 +433,7 @@ MIT © 2026 [Phat-Po](https://github.com/Phat-Po)
 
 <div align="center">
 
-Built with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) · [pynput](https://github.com/moses-palmer/pynput) · [sounddevice](https://python-sounddevice.readthedocs.io/)
+Built with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) · [pynput](https://github.com/moses-palmer/pynput) · [sounddevice](https://python-sounddevice.readthedocs.io/) · [PyObjC](https://pyobjc.readthedocs.io/)
 
 If this project helps you, consider giving it a ⭐ Star!
 

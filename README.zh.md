@@ -13,78 +13,94 @@
 ░███░ █░░░█ ░███░ ████░ █░░░░ █████ █░░█░ █░░░█ █████ ░░█░░
 </pre>
 
-**按住按键说话，松开即转文字。**
+**按住按键说话，松开完成转录。**
 
-适用于 macOS 的本地语音输入工具 — 离线运行，完全免费，无订阅费用。
+macOS 本地语音输入工具 — 离线、免费、无订阅。可选本地或云端后处理，把口语稿整理成干净的书面文字。
 
-📖 [English Documentation](README.md)
+📖 [View English README](README.md)
 
 ---
 
 ## 为什么选择 WhisperKey？
 
-大多数 macOS 语音输入工具要么需要联网，要么价格不菲：
+大部分 macOS 语音输入工具要么只能联网，要么价格昂贵：
 
 | | WhisperKey | SuperWhisper | Wispr Flow | macOS 听写 |
 |---|:---:|:---:|:---:|:---:|
-| 免费开源 | ✅ | ❌（$250 买断）| ❌（$15/月）| ✅ |
-| 完全离线 | ✅ | ✅ | ❌ | ❌ |
-| 中英混合识别 | ✅ | ✅ | ✅ | ⚠️ |
-| 自定义快捷键 | ✅ | ✅ | ❌ | ❌ |
+| 免费 & 开源 | ✅ | ❌（$250 买断） | ❌（$15/月） | ✅ |
+| 完全离线转录 | ✅ | ✅ | ❌ | ❌ |
+| 中英混合 | ✅ | ✅ | ✅ | ⚠️ |
+| 语音清理（去赘词、重写） | ✅ | ✅ | ✅ | ❌ |
+| 自订替换词典 | ✅ | ⚠️ | ⚠️ | ❌ |
+| Token 用量仪表板 | ✅ | ❌ | ❌ | ❌ |
+| 自订快捷键 | ✅ | ✅ | ❌ | ❌ |
 | 直接下载 `.app` | ✅ | ✅ | ✅ | — |
 
-WhisperKey 的核心转录基于 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在本机运行，主链路保持 local-first；如果你需要更强的语义修正，也可以稍后用自己的 OpenAI API key 开启可选的在线纠错。
+WhisperKey 以 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在本机完成转录。核心听写流程完全本地优先，可选 OpenAI 后处理则由你自己的 API Key 驱动。
 
 ---
 
-## ✨ 功能特点
+## ✨ 核心功能
 
-| | |
-|---|---|
-| 🎤 | 按住右 Option ⌥ 录音，松手自动转录并粘贴 |
-| 🔁 | 免提模式：同时按 Option + Command 开关持续录音 |
-| 🌍 | 支持中文、英文及 90+ 种语言 |
-| 💾 | 完全本地运行，首次下载模型后无需联网 |
-| 📋 | 转录结果自动复制到剪贴板并粘贴至当前应用 |
-| 🪟 | 长文本结果 HUD 最多支持 3 行显示与自适应高度 |
-| ✨ | 可选 OpenAI 在线纠错，使用你自己的 API key |
-| 🔧 | 交互式安装向导，中英双语 |
-| 🚀 | 支持开机自启（macOS LaunchAgent） |
-| ⌨️ | 可自定义快捷键 |
+### 🎙️ 语音输入
+- **按住说话** — 按住 Right Option ⌥ 录音，松开自动转录
+- **免持模式** — Right Option ⌥ + Right Command ⌘ 切换持续录音
+- **90+ 语言** 支持，中英混合处理
+- **完全离线转录**（faster-whisper）— 首次下载模型后无需联网
+- **自动粘贴** 到当前应用
+- **VoiceInput 胶囊浮层** — 紧凑低干扰的录音/转录/结果视觉回馈
+
+### 🧼 可选 AI 后处理
+- **语音清理（Voice Cleanup）** — 去除「嗯」「呃」「就是」「那個」等口头禅、删除重复、把散乱口语重组成通顺文字
+- **ASR 纠错** — 修正同音字、标点、明显的识别错误（短文本适用，改写幅度最小）
+- **自订 Prompt** — 使用你自己的系统提示词，做领域专属改写
+- **输出语言** — 保留原文 / 翻成英文 / 翻成中文
+- 使用你自己的 OpenAI API Key，存放在 macOS Keychain（绝不进 git）
+
+### ⚙️ 完整可调
+- **Settings GUI**，5 个分页：一般、语音、替换词典、用量、进阶
+- **选单列 App** — 实时状态、一键暂停/恢复、快速开启 Settings
+- **替换词典** — 自动把 `cloude → Claude`、`gpt → GPT` 等错识修回
+- **Token 用量仪表板** — 追踪 OpenAI 消耗（今日/本周/总计）与磁碟占用
+- **麦克风选择器** — 支援任何已连接输入装置
+- **完全自订快捷键** — hold key 与 handsfree 组合
+- **开机自启** 一键切换（由 macOS LaunchAgent 管理）
+- **中英双语 UI** 贯穿 setup、Settings、选单列
+- **优雅降级** — 云端逾时或错误时自动贴上原始转录
 
 ---
 
-## 📋 系统要求
+## 📋 系统需求
 
-- **macOS** 12 Monterey 或更高版本
-- **Python 3.10+**（推荐通过 Homebrew 安装）
+- **macOS** 12 Monterey 或更高（建议 Apple Silicon）
+- **Python 3.10+**（仅源码安装需要；使用 `.app` 不需要）
 - **麦克风**
-- 系统权限：**辅助功能** + **输入监控**
+- 系统权限：**输入监控** + **辅助使用**
+- *（可选）* OpenAI API Key 用于后处理
 
 ---
 
 ## 📦 安装
 
-### 下载 App
+### 方式 A — 下载 App（推荐）
 
-如果你想直接使用打包版，请到 GitHub Releases 下载 `WhisperKey-macOS-arm64-v0.2.1.zip`，解压后打开 `WhisperKey.app`。
+到 [Releases 页面](https://github.com/Phat-Po/whisperkey-mac/releases) 下载 `WhisperKey-macOS-arm64-v0.2.2.zip`，解压后把 `WhisperKey.app` 拖到 `/应用程式`。
 
-首次启动后，需要开启两个 macOS 权限：
+首次启动时授权两个 macOS 权限：
+- **输入监控** — 让 WhisperKey 监听快捷键
+- **辅助使用** — 让 WhisperKey 把文字贴进当前应用
 
-- **输入监控** — 用于监听快捷键。
-- **辅助功能** — 用于把文字粘贴到当前应用。
+此版本为本机签名但未经过 Apple 公证。若 macOS 挡下首次启动，请右键 `WhisperKey.app` → **打开** → 确认。
 
-当前构建已本地签名，但没有 Apple notarization。如果 macOS 首次阻止打开，请右键点击 `WhisperKey.app`，选择 **打开**，再确认启动。
+首次转录会从 HuggingFace 下载所选 Whisper 模型（需联网一次）。之后转录完全离线运行。
 
-首次转录仍会从 HuggingFace 下载所选 Whisper 模型。模型缓存后，后续转录可离线运行。
-
-### 使用 Python 安装
+### 方式 B — 从源码安装
 
 ```bash
 pip install git+https://github.com/Phat-Po/whisperkey-mac.git
 ```
 
-或克隆仓库进行开发安装：
+或 clone 下来开发：
 
 ```bash
 git clone https://github.com/Phat-Po/whisperkey-mac.git
@@ -93,11 +109,9 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```
 
-> **提示（macOS）**：如果 `python3 -V` 低于 3.10，请不要直接使用系统自带 Python，改用 Homebrew 安装的 Python。示例：`python3.12 -m venv .venv`，然后 `python3.12 -m pip install -e .`。
+> **macOS 提示**：若 `python3 -V` 低于 3.10，请明确指定 Homebrew 版本：`python3.12 -m venv .venv`。
 
-> **注意**：首次转录时会自动从 HuggingFace 下载所选的 Whisper 模型（需要网络）。后续完全离线运行。
-
-> **缓存说明**：重新安装 WhisperKey 或重建本地 `venv` **不会**重复下载已经缓存的模型。只要你没有手动删除 `~/.cache/huggingface/hub` 里的模型文件，就会直接复用。
+> **模型快取**：重装或重建 venv **不会** 重新下载已快取的模型。`~/.cache/huggingface/hub` 下的模型会自动复用，除非手动删除。
 
 ---
 
@@ -109,80 +123,160 @@ pip install -e .
 whisperkey
 ```
 
-首次运行会自动启动安装向导，引导你完成：
+交互式设置精灵会引导你：
 
-1. **界面语言** — 中文 / English
-2. **转录语言** — 中文 / 英文 / 混合 / 其他
+1. **界面语言** — English 或 中文
+2. **转录语言** — 英文 / 中文 / 混合 / 其它
 3. **Whisper 模型** — base / small / large-v3-turbo
-4. **快捷键** — 使用默认或自定义
-5. **系统权限** — 逐步引导开启
-6. **在线纠错（可选）** — 可启用 OpenAI 在线纠错并把 API key 保存到 macOS Keychain
+4. **快捷键** — 使用默认或自订
+5. **系统权限** — 引导授权
+6. **AI 后处理（可选）** — 选择模式并把 OpenAI API Key 存入 Keychain
 
-### 之后每次使用
+### 日常使用
 
-WhisperKey 在后台运行，不需要打开任何窗口。
+WhisperKey 常驻于选单列，无需开窗。
 
 | 操作 | 快捷键 |
 |---|---|
-| 开始录音 | 按住右 Option ⌥ |
-| 停止并转录 | 松开右 Option ⌥ |
-| 免提模式开/关 | 右 Option ⌥ + 右 Command ⌘ |
+| 开始录音 | 按住 Right Option ⌥ |
+| 停止并转录 | 松开 Right Option ⌥ |
+| 切换免持模式 | Right Option ⌥ + Right Command ⌘ |
 
 ---
 
-## ⌨️ 快捷键
+## 🎛️ 后处理模式
 
-默认快捷键：
+本机转录完成后，WhisperKey 可选择把结果送到 OpenAI 做清理。**Settings → 语音 → Processing Mode** 提供 3 种模式：
 
-```
-右 Option ⌥  （按住）         →  开始录音
-右 Option ⌥  （松开）         →  停止录音 + 自动转录 + 粘贴
-右 Option ⌥  + 右 Command ⌘  →  免提模式开/关
-```
+| 模式 | 用途 | 适合场景 | 建议逾时 |
+|---|---|---|---|
+| **Disabled** | 直接贴上 Whisper 原文 | 最快；不调用云端 | — |
+| **ASR Correction** | 修正同音字、缺漏标点、明显识别错误，几乎不改写 | 短语、指令输入、技术词 | 3 秒 |
+| **Voice Cleanup** ⭐ | 去除「嗯/呃/就是/那個」等赘词、删除重复犹豫、把散乱口语重组成通顺文字。保留所有具体细节（数字、名称、限制条件）。 | 较长的说话内容、笔记、起草邮件/文档 | 8 秒 |
+| **Custom** | 使用你自己的 system prompt | 领域专属改写（正式语气、代码、翻译风格等） | 8 秒 |
 
-可通过 `whisperkey setup` 自定义快捷键。
+所有模式在逾时或 API 错误时都会自动降级为原始转录。
 
 ---
 
-## 🔧 配置
+## 🍎 选单列控制
 
-```bash
-whisperkey setup   # 重新运行安装向导
-whisperkey permissions  # 打开正确的 macOS 权限页并显示 Python.app 路径
-whisperkey help    # 检查权限、模型、音频
+WhisperKey 常驻 macOS 选单列。点击图标可：
+
+- **状态列** — running / paused / 等待权限
+- **暂停 / 恢复** — 不退出程序的临时停止监听（玩游戏或录屏时好用）
+- **Settings…** — 开启完整 Settings GUI
+- **Quit WhisperKey**
+
+选单列标题会根据服务状态实时变化。
+
+---
+
+## ⚙️ Settings GUI
+
+**选单列 → Settings…** 开启。5 个分页涵盖所有配置：
+
+### 一般（General）
+- 界面语言（zh / en）
+- 转录语言（Auto / zh / en / 其它 ISO code）
+- **输出语言**（保留原文 / 翻成英文 / 翻成中文）
+- Whisper 模型（`base` / `small` / `large-v3-turbo`）
+- **麦克风** — 挑选任一已连接的输入装置（或系统默认）
+- **开机自启** 切换
+
+### 语音（Voice）
+- **Processing Mode**（Disabled / ASR Correction / Voice Cleanup / Custom）
+- **Online Model**（如 `gpt-5.4` — 可自订）
+- **逾时**秒数（建议：Voice Cleanup 8 秒，ASR Correction 3 秒）
+
+### 替换词典（Word Fix）
+个人化词典，会对每次转录结果做替换。适合 STT 模型老是听错的品牌名或专有名词。
+
+```
+cloude → Claude
+cloud ai → Claude AI
+open ei eye → OpenAI
 ```
 
-配置保存在 `~/.config/whisperkey/config.json`，可手动编辑：
+- 一行一条替换
+- 使用 `→` 或 `->`
+- 不分大小写，最长匹配优先
+- 完全本地执行，不调用云端
+
+### 用量（Usage）
+实时仪表板，显示：
+- OpenAI token 消耗（输入/输出，今日/本周/总计）
+- 磁碟占用 — 音频暂存 + Whisper 模型快取路径
+
+### 进阶（Advanced）
+- **Hold Key** — 任意 pynput 按键名（如 `alt_r`、`cmd_r`、`f13`）
+- **Handsfree Keys** — 逗号分隔组合（如 `alt_r, cmd_r`）
+- **API Key** — 贴上新的 OpenAI key；自动存入 macOS Keychain
+
+---
+
+## 📊 用量追踪
+
+**Usage** 分页透明呈现你的 OpenAI 消耗：
+
+- 每日 / 每周 / 总计的 输入/输出 token 数
+- 音频暂存磁碟占用（`/tmp/whisperkey_mac/`）
+- Whisper 模型快取占用（`~/.cache/huggingface/hub/`）
+- 一键刷新
+
+所有数据仅本地读取，不上传任何遥测。
+
+---
+
+## 🔧 配置文件
+
+进阶或脚本化场景可直接编辑 `~/.config/whisperkey/config.json`：
 
 ```json
 {
   "ui_language": "zh",
   "transcribe_language": "auto",
+  "output_language": "auto",
   "model_size": "small",
+  "input_device": "",
   "hold_key": "alt_r",
   "handsfree_keys": ["alt_r", "cmd_r"],
+  "auto_paste": true,
   "result_max_lines": 3,
+  "online_prompt_mode": "disabled",
   "online_correct_enabled": false,
   "online_correct_provider": "openai",
   "online_correct_model": "gpt-5.4",
-  "online_prompt_mode": "disabled",
-  "output_language": "auto"
+  "online_correct_timeout_s": 8.0,
+  "online_prompt_custom_text": "",
+  "word_replacements": {},
+  "launch_at_login": false
 }
 ```
 
-### 可选在线纠错
+### 环境变量覆写
 
-- 默认关闭，可通过 `whisperkey setup` 启用。
-- 使用你自己的 OpenAI API key。安装向导会把 key 保存到 macOS Keychain。
-- 可以在 Settings 里设置 **Output Language**，让在线处理后保持原语言、输出英文、或输出中文。
-- 如果设置了 `OPENAI_API_KEY`，它会覆盖 Keychain 中保存的值。
-- 若没有 key、请求超时、或 OpenAI 返回错误，WhisperKey 会自动回退到原始转录文本，不会阻断输入。
+适合 LaunchAgent 与 CI 场景：
+
+| 变量 | 覆写项 |
+|---|---|
+| `OPENAI_API_KEY` | Keychain 内的 API key |
+| `WHISPERKEY_MODEL` | `model_size` |
+| `WHISPERKEY_COMPUTE_TYPE` | `compute_type`（默认 `int8`） |
+| `WHISPERKEY_DEVICE` | `device`（默认 `cpu`） |
+| `WHISPERKEY_LANGUAGE` | Whisper 语言提示 |
+| `WHISPERKEY_SAMPLE_RATE` | 录音采样率 |
+| `WHISPERKEY_AUTO_PASTE` | `1` / `0` |
+| `WHISPERKEY_RESULT_MAX_LINES` | HUD 行数上限 |
+| `WHISPERKEY_ONLINE_CORRECT` | `1` / `0` |
+| `WHISPERKEY_ONLINE_CORRECT_MODEL` | OpenAI 模型名 |
+| `WHISPERKEY_ONLINE_PROMPT_MODE` | `disabled` / `asr_correction` / `voice_cleanup` / `custom` |
 
 ### 模型选项
 
-| 模型 | 大小 | 适用场景 |
+| 模型 | 大小 | 适合 |
 |---|---|---|
-| `base` | ~141 MB | 低配设备，速度优先 |
+| `base` | ~141 MB | 低配设备、速度优先 |
 | `small` | ~464 MB | **推荐 ⭐** 速度与准确度平衡 |
 | `large-v3-turbo` | ~1.5 GB | 最高准确度 |
 
@@ -192,16 +286,20 @@ whisperkey help    # 检查权限、模型、音频
 
 WhisperKey 需要两个 macOS 系统权限：
 
-**1. 输入监控** — 用于监听快捷键
+**1. 输入监控**（Input Monitoring）— 监听快捷键
 → 系统设置 → 隐私与安全性 → 输入监控
 
-**2. 辅助功能** — 用于将文字粘贴到当前应用
-→ 系统设置 → 隐私与安全性 → 辅助功能
+**2. 辅助使用**（Accessibility）— 把转录文字贴进当前应用
+→ 系统设置 → 隐私与安全性 → 辅助使用
 
-在两处均将 **Python.app** 添加到列表并开启开关。Python.app 的路径通常为：
+把 `whisperkey permissions` 或 `whisperkey help` 列出的应用加到两个列表并启用开关。
+源码安装通常是 Python.app：
 ```
 /opt/homebrew/Cellar/python@3.xx/x.x.x/Frameworks/Python.framework/Versions/3.xx/Resources/Python.app
 ```
+打包版本则授权 `WhisperKey.app`。
+
+> **注意**：每次打包 CDHash 都会变，所以升级 `.app` 后需重新授权两个权限。
 
 ---
 
@@ -211,25 +309,30 @@ WhisperKey 需要两个 macOS 系统权限：
 whisperkey help
 ```
 
-自动检查：进程状态 · 辅助功能 · 输入监控 · 音频设备 · 模型文件 · 配置文件
+自动检查：进程状态 · 辅助使用 · 输入监控 · 音频设备 · 模型文件 · 配置
 
-**按快捷键没有反应** → 检查输入监控权限
-**转录结果没有粘贴** → 检查辅助功能权限
-**在线纠错没有生效** → 重新运行 `whisperkey setup` 或设置 `OPENAI_API_KEY`
-**Electron / Web 聊天输入框显示 `inject_path=applescript`** → 这是预期兼容路径；这类输入框常常不会完整暴露 AX 文本角色
+| 症状 | 解决 |
+|---|---|
+| 快捷键无响应 | 检查**输入监控**权限 |
+| 转录没粘贴 | 检查**辅助使用**权限 |
+| 后处理没生效 | 重跑 `whisperkey setup` 或设 `OPENAI_API_KEY`；确认 Settings → 语音 → Processing Mode |
+| 日志出现 `inject_path=applescript` | Electron/网页类应用的兼容路径，属预期 |
+| 升级 `.app` 后失效 | 重新授权输入监控 + 辅助使用（CDHash 变了） |
 
 ```bash
-tail -f /tmp/whisperkey.log                            # 实时日志
+tail -f /tmp/whisperkey.log                           # 实时日志
 launchctl kickstart -k gui/$(id -u)/com.whisperkey    # 重启服务
 ```
 
 ---
 
 <details>
-<summary>🚀 开机自启（LaunchAgent 设置）</summary>
+<summary>🚀 开机自启（LaunchAgent 手动设置）</summary>
+
+Settings GUI 的 **Launch at Login** 开关会自动管理这个。源码安装的手动方案：
 
 ```bash
-# 1. 在本地安装（不依赖外置磁盘）
+# 1. 本地安装（不要放外接磁碟）
 mkdir -p ~/Library/Application\ Support/whisperkey
 python3 -m venv ~/Library/Application\ Support/whisperkey/venv
 ~/Library/Application\ Support/whisperkey/venv/bin/pip install git+https://github.com/Phat-Po/whisperkey-mac.git
@@ -271,13 +374,13 @@ cat > ~/Library/LaunchAgents/com.whisperkey.plist << 'EOF'
 </plist>
 EOF
 
-# 将 YOUR_USERNAME 替换为你的用户名
+# 把 YOUR_USERNAME 改成实际用户名
 
 # 3. 注册服务
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.whisperkey.plist
 ```
 
-这种 LaunchAgent 会启动 crash supervisor，由 supervisor 再启动主程序；如果主程序异常退出，会写入 `/tmp/whisperkey-last-crash.log` 并发送 macOS 通知。
+LaunchAgent 会启动 crash supervisor，由它拉起主程序；若意外退出会把细节写入 `/tmp/whisperkey-last-crash.log` 并弹出 macOS 通知。
 
 </details>
 
@@ -290,7 +393,7 @@ cd whisperkey-mac
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-whisperkey        # 直接运行
+whisperkey        # 运行
 whisperkey setup  # 重新配置
 whisperkey help   # 故障排查
 ```
@@ -298,17 +401,25 @@ whisperkey help   # 故障排查
 ```
 whisperkey_mac/
 ├── main.py               # 入口，CLI 路由
+├── app_entry.py          # 选单列 App 启动
+├── menu_bar.py           # 选单列图标 + 状态同步
+├── settings_window.py    # Settings GUI（5 分页）
 ├── config.py             # 配置读写（JSON + 环境变量）
-├── i18n.py               # 中英文字符串字典
-├── keyboard_listener.py  # 按住模式 + 免提模式逻辑
-├── audio.py              # 音频录制（sounddevice）
-├── transcriber.py        # Whisper 语音转文字（faster-whisper）
-├── online_correct.py     # 可选 OpenAI 在线纠错管线
-├── keychain.py           # OpenAI API key 的 macOS Keychain 辅助
-├── output.py             # 文字注入（剪贴板 + 聚焦目标粘贴）
-├── setup_wizard.py       # 交互式终端安装向导
+├── i18n.py               # zh/en 字串字典
+├── keyboard_listener.py  # Hold-key + 免持快捷键逻辑
+├── audio.py              # 录音（sounddevice）
+├── transcriber.py        # Whisper STT（faster-whisper）
+├── online_correct.py     # 可选 OpenAI 后处理管线
+├── keychain.py           # macOS Keychain 助手（OpenAI API key）
+├── output.py             # 文字注入（剪贴板 + 当前应用粘贴）
+├── overlay.py            # VoiceInput 胶囊浮层
+├── usage_log.py          # Token 消耗追踪
+├── launch_agent.py       # LaunchAgent 安装/卸载
+├── setup_wizard.py       # 交互式终端设置
 └── help_cmd.py           # 故障排查工具
 ```
+
+打包：`packaging/macos/build_app.sh`（PyInstaller + codesign）→ `packaging/macos/package_release.sh`（打 zip 上传 Release）。
 
 </details>
 
@@ -322,8 +433,8 @@ MIT © 2026 [Phat-Po](https://github.com/Phat-Po)
 
 <div align="center">
 
-Built with [faster-whisper](https://github.com/SYSTRAN/faster-whisper) · [pynput](https://github.com/moses-palmer/pynput) · [sounddevice](https://python-sounddevice.readthedocs.io/)
+基于 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) · [pynput](https://github.com/moses-palmer/pynput) · [sounddevice](https://python-sounddevice.readthedocs.io/) · [PyObjC](https://pyobjc.readthedocs.io/)
 
-如果这个项目对你有帮助，欢迎点个 ⭐ Star！
+如果这个项目对你有帮助，请给个 ⭐ Star！
 
 </div>
