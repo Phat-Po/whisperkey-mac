@@ -4,6 +4,122 @@
 
 ---
 
+## Current Handoff Update — 2026-04-19 20:30
+
+The implementation pass has been completed in source. The next agent should **not redesign the button again**. The next task is **visual runtime testing only**, then report whether the source overlay visually matches the supplied VoiceInput component.
+
+### Current Project State
+
+- Snapshot commit was created before implementation:
+  - `7e9b809 snapshot: before voiceinput pill redesign`
+- Current uncommitted files:
+  - `whisperkey_mac/overlay.py`
+  - `STATUS.md`
+  - `HANDOFF-20260419-voiceinput-redesign.md`
+- Main implementation file:
+  - `whisperkey_mac/overlay.py`
+- Source overlay now uses:
+  - `VoiceInputView(NSView)` for native drawing.
+  - `AuroraOrbView = VoiceInputView` alias for backward-compatible imports.
+  - `AuroraRenderer.IDLE_W/H = 52`.
+  - `AuroraRenderer.ACTIVE_W/H = 220/52`.
+  - `AuroraRenderer.RESULT_W = 300`.
+  - `AuroraRenderer.APPEAR_DURATION_S = 0.40`.
+
+### What Was Implemented
+
+- IDLE state:
+  - `52x52` white translucent circle.
+  - 1px dark translucent border.
+  - centered mic icon via SF Symbol, with a Core Graphics fallback mic path.
+- RECORDING state:
+  - expands to a `220x52` pill.
+  - left `24px` icon cell.
+  - rotating `16x16` rounded stop square.
+  - 12 animated frequency bars, each `2px` wide with `2px` gaps.
+  - `MM:SS` timer in a `40px` monospace field.
+- TRANSCRIBING state:
+  - stays as `220x52` pill.
+  - shows a minimal spinner dot and `...`.
+- RESULT state:
+  - preserved.
+  - expands to `300px` wide result pill.
+  - shows transcript text and hint text such as `已复制到剪贴板`.
+  - auto-dismiss behavior remains through the existing state machine.
+
+### Verification Already Run
+
+```bash
+.venv/bin/python -m compileall whisperkey_mac -q
+```
+
+Result: passed.
+
+```bash
+.venv/bin/python -m pytest tests/test_keyboard_listener.py -q
+```
+
+Result: `9 passed`.
+
+```bash
+.venv/bin/python -m pytest tests/test_overlay.py tests/test_keyboard_listener.py -q
+```
+
+Result: `39 passed, 3 failed`.
+
+The 3 failures are expected stale-test conflicts caused by the new approved geometry:
+
+- `test_panel_position` expects old `84x84`; new spec is `52x52`.
+- `test_transcribing_stays_compact_ring_only` expects transcribing to stay compact; new spec is `220x52`.
+- `test_renderer_resets_result_layout_before_recording` expects recording width `PANEL_W=52`; new spec is `ACTIVE_W=220`.
+
+Do **not** edit tests unless the user explicitly approves changing tests. The previous implementation constraint was "only touch `overlay.py`".
+
+### Next Agent Task
+
+Run a visual runtime test from source and report whether the overlay looks like the supplied VoiceInput button.
+
+Use source launch, not the packaged app:
+
+```bash
+cd "/Volumes/轻松打爆你/VIBE CODING/10_PROJECTS_ACTIVE/20260302__python__vibemouse-mac"
+./start.sh
+```
+
+Reason: `dist/WhisperKey.app` may not include the uncommitted `overlay.py` change unless `build_app.sh` is run, and `build_app.sh` is explicitly forbidden without approval because it can force macOS TCC permission re-grants.
+
+### Visual Checklist
+
+1. On launch / idle:
+   - Bottom-center overlay appears as a compact `52x52` white translucent circle.
+   - No aurora ring, glow, purple/cyan gradients, or noisy shader look remains.
+   - Mic icon is centered and dark.
+2. Hold Right Option to record:
+   - Circle expands horizontally into a clean pill.
+   - Pill is approximately `220x52`.
+   - Left icon changes to a dark rotating rounded square.
+   - 12 slim vertical frequency bars animate.
+   - Timer reads `00:00`, then increments once per second.
+3. Release Right Option:
+   - Overlay enters transcribing state.
+   - Pill remains `220x52`.
+   - Shows a minimal spinner dot and `...`.
+4. Result:
+   - Overlay expands to a `300px` wide result pill.
+   - Transcript text appears.
+   - Hint text appears under it, usually `已复制到剪贴板`.
+   - After the configured timeout, it shrinks back to the `52x52` idle mic circle.
+
+### Constraints For Next Agent
+
+- Do not run `packaging/macos/build_app.sh`.
+- Do not git push.
+- Do not install React/npm/shadcn or introduce a WebView.
+- Do not redesign the UI from scratch; this pass is visual validation and, if needed, small source-only fixes in `overlay.py`.
+- Do not modify config, packaging, LaunchAgent, permissions, transcriber, service controller, or tests unless the user explicitly approves.
+
+---
+
 ## Project Context
 
 WhisperKey is a **native macOS Python app** (PyObjC/AppKit). It floats a transparent NSPanel overlay at the bottom-center of screen. The overlay shows state: idle → recording → transcribing → result (shows transcribed text). All drawing is pure Core Graphics — no React, no web view, no npm packages.

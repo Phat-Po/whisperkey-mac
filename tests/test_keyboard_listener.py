@@ -4,6 +4,7 @@ import unittest.mock
 
 from pynput import keyboard
 
+from whisperkey_mac import keyboard_listener as keyboard_listener_module
 from whisperkey_mac.keyboard_listener import HotkeyListener, key_name_to_pynput, pynput_key_to_name
 
 
@@ -31,8 +32,125 @@ class _FakeListener:
         self.joined = True
 
 
+class _FakeDarwinListener(_FakeListener):
+    def _event_to_key(self, event):
+        return event
+
+
+class _ConstructedListener:
+    def __init__(self, *args, **kwargs) -> None:
+        self.args = args
+        self.kwargs = kwargs
+        self.started = False
+
+    def start(self) -> None:
+        self.started = True
+
+
 def _unpause(listener: HotkeyListener) -> None:
     listener._paused = False
+
+
+def _cmd_backslash_listener() -> HotkeyListener:
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+    )
+    listener._listener = _FakeDarwinListener()
+    _unpause(listener)
+    return listener
+
+
+def test_start_installs_darwin_intercept_without_global_suppression():
+    created: list[_ConstructedListener] = []
+
+    def _make_listener(*args, **kwargs):
+        constructed = _ConstructedListener(*args, **kwargs)
+        created.append(constructed)
+        return constructed
+
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+    )
+
+    with unittest.mock.patch("whisperkey_mac.keyboard_listener.keyboard.Listener", side_effect=_make_listener):
+        listener.start()
+
+    assert len(created) == 1
+    assert created[0].started is True
+    assert created[0].kwargs["on_press"] == listener._on_press
+    assert created[0].kwargs["on_release"] == listener._on_release
+    assert created[0].kwargs["darwin_intercept"] == listener._intercept_darwin_event
+    assert "suppress" not in created[0].kwargs
+    assert listener._paused is False
+
+
+def test_intercept_suppresses_cmd_backslash_character_down_and_up():
+    listener = _cmd_backslash_listener()
+    slash = keyboard.KeyCode.from_char("\\")
+
+    listener._on_press(keyboard.Key.cmd)
+    listener._on_press(slash)
+
+    with unittest.mock.patch("whisperkey_mac.keyboard_listener.diag") as mock_diag:
+        down_result = listener._intercept_darwin_event(keyboard_listener_module.kCGEventKeyDown, slash)
+        listener._on_release(slash)
+        up_result = listener._intercept_darwin_event(keyboard_listener_module.kCGEventKeyUp, slash)
+
+    assert down_result is None
+    assert up_result is None
+    suppressed_calls = [
+        call for call in mock_diag.call_args_list
+        if call.args and call.args[0] == "hotkey_event_suppressed"
+    ]
+    assert [call.kwargs["phase"] for call in suppressed_calls] == ["down", "up"]
+    assert suppressed_calls[0].kwargs["key"] == "char:backslash"
+    assert suppressed_calls[0].kwargs["combo"] == "cmd+char:backslash"
+    assert "\\" not in suppressed_calls[0].kwargs["key"]
+    assert "\\" not in suppressed_calls[0].kwargs["combo"]
+
+
+def test_intercept_allows_plain_backslash():
+    listener = _cmd_backslash_listener()
+    slash = keyboard.KeyCode.from_char("\\")
+
+    listener._on_press(slash)
+
+    result = listener._intercept_darwin_event(keyboard_listener_module.kCGEventKeyDown, slash)
+
+    assert result is slash
+
+
+def test_intercept_allows_other_cmd_shortcuts():
+    listener = _cmd_backslash_listener()
+    c_key = keyboard.KeyCode.from_char("c")
+
+    listener._on_press(keyboard.Key.cmd)
+    listener._on_press(c_key)
+
+    result = listener._intercept_darwin_event(keyboard_listener_module.kCGEventKeyDown, c_key)
+
+    assert result is c_key
+
+
+def test_intercept_suppresses_only_matching_keyup_once():
+    listener = _cmd_backslash_listener()
+    slash = keyboard.KeyCode.from_char("\\")
+
+    listener._on_press(keyboard.Key.cmd)
+    listener._on_press(slash)
+    assert listener._intercept_darwin_event(keyboard_listener_module.kCGEventKeyDown, slash) is None
+    listener._on_release(slash)
+
+    assert listener._intercept_darwin_event(keyboard_listener_module.kCGEventKeyUp, slash) is None
+    assert listener._intercept_darwin_event(keyboard_listener_module.kCGEventKeyUp, slash) is slash
 
 
 def test_handsfree_stop_waits_until_combo_is_fully_released():

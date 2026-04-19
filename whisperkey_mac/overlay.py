@@ -39,10 +39,6 @@ from AppKit import (
     NSTextAlignmentCenter,
     NSTextField,
     NSView,
-    NSVisualEffectBlendingModeBehindWindow,
-    NSVisualEffectMaterialHUDWindow,
-    NSVisualEffectStateActive,
-    NSVisualEffectView,
     NSWindowCollectionBehaviorCanJoinAllSpaces,
     NSWindowCollectionBehaviorFullScreenAuxiliary,
     NSWindowCollectionBehaviorStationary,
@@ -141,6 +137,7 @@ class VoiceInputView(NSView):
 
         mic = NSImage.imageWithSystemSymbolName_accessibilityDescription_("mic", None)
         if mic is None:
+            self._draw_fallback_mic(w / 2.0, h / 2.0)
             return
         size = 22.0
         x = (w - size) / 2.0
@@ -153,6 +150,23 @@ class VoiceInputView(NSView):
             0.85,
         )
 
+    def _draw_fallback_mic(self, cx: float, cy: float) -> None:
+        NSColor.colorWithSRGBRed_green_blue_alpha_(0.078, 0.078, 0.078, 0.85).set()
+
+        capsule = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
+            NSMakeRect(cx - 4.0, cy - 8.0, 8.0, 14.0), 4.0, 4.0
+        )
+        capsule.setLineWidth_(1.8)
+        capsule.stroke()
+
+        stand = NSBezierPath.bezierPath()
+        stand.moveToPoint_(NSMakePoint(cx, cy - 10.0))
+        stand.lineToPoint_(NSMakePoint(cx, cy - 15.0))
+        stand.moveToPoint_(NSMakePoint(cx - 6.0, cy - 15.0))
+        stand.lineToPoint_(NSMakePoint(cx + 6.0, cy - 15.0))
+        stand.setLineWidth_(1.8)
+        stand.stroke()
+
     def _draw_recording(self):
         bounds = self.bounds()
         w = bounds.size.width
@@ -161,13 +175,19 @@ class VoiceInputView(NSView):
         t = self._elapsed
         level = self._audio_level
 
-        # Layout constants (from left): 8 pad | 16 stop sq | 8 gap | 12 bars (44px) | 8 gap | 40 timer | 8 pad
-        # Total content = 16+8+44+8+40 = 116px. Center in pill width.
-        block_w = 16 + 8 + 44 + 8 + 40
+        # React structure: 24px icon cell, 8px expanded gap, 12 bars, 8px gap, 40px timer.
+        icon_cell_w = 24.0
+        expanded_gap = 8.0
+        bar_w = 2.0
+        bar_gap = 2.0
+        bar_count = 12
+        bars_w = bar_count * bar_w + (bar_count - 1) * bar_gap
+        timer_w = 40.0
+        block_w = icon_cell_w + expanded_gap + bars_w + expanded_gap + timer_w
         x = (w - block_w) / 2.0
 
         # --- Rotating stop square (16×16, radius 3) ---
-        sq_cx = x + 8.0   # center x of stop square
+        sq_cx = x + icon_cell_w / 2.0
         sq_cy = cy
         angle_deg = (t / 2.0 * 360.0) % 360.0
 
@@ -189,21 +209,22 @@ class VoiceInputView(NSView):
         gc.restoreGraphicsState()
 
         # --- 12 frequency bars ---
-        bars_x = x + 16 + 8
+        bars_x = x + icon_cell_w + expanded_gap
         scale = 0.3 + level * 0.7
-        for i in range(12):
+        for i in range(bar_count):
             phase = i * 0.4
-            bar_h = max(2.0, (2.0 + 11.0 * abs(math.sin(t * 3.0 + phase))) * scale)
-            bx = bars_x + i * (2.0 + 2.0)  # 2px bar + 2px gap
+            wave = abs(math.sin(t * 3.0 + phase))
+            bar_h = 2.0 + 11.0 * wave * scale
+            bx = bars_x + i * (bar_w + bar_gap)
             by = cy - bar_h / 2.0
             bar_path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(
-                NSMakeRect(bx, by, 2.0, bar_h), 1.0, 1.0
+                NSMakeRect(bx, by, bar_w, bar_h), 1.0, 1.0
             )
             NSColor.colorWithSRGBRed_green_blue_alpha_(0.078, 0.078, 0.078, 0.85).set()
             bar_path.fill()
 
         # --- MM:SS timer ---
-        timer_x = bars_x + 44 + 8
+        timer_x = bars_x + bars_w + expanded_gap
         mins = self._record_secs // 60
         secs = self._record_secs % 60
         timer_str = f"{mins:02d}:{secs:02d}"
@@ -284,7 +305,7 @@ class AuroraRenderer:
     SUBLABEL_HEIGHT: float = 16.0
     BASE_LABEL_HEIGHT: float = 20.0
 
-    APPEAR_DURATION_S: float = 0.18
+    APPEAR_DURATION_S: float = 0.40
     DISMISS_DURATION_S: float = 0.30
     FPS: float = 30.0
 
@@ -838,13 +859,10 @@ class OverlayPanel:
     def _build_content(self) -> None:
         w, h = float(self.PANEL_W), float(self.PANEL_H)
 
-        vfx = NSVisualEffectView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
-        vfx.setMaterial_(NSVisualEffectMaterialHUDWindow)
-        vfx.setBlendingMode_(NSVisualEffectBlendingModeBehindWindow)
-        vfx.setState_(NSVisualEffectStateActive)
-        vfx.setWantsLayer_(True)
+        content = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+        content.setWantsLayer_(True)
 
-        self._root_layer = vfx.layer()
+        self._root_layer = content.layer()
         self._root_layer.setCornerRadius_(self.CORNER_RADIUS)
         self._root_layer.setMasksToBounds_(True)
         self._root_layer.setBorderWidth_(1.0)
@@ -855,13 +873,13 @@ class OverlayPanel:
             NSColor.colorWithSRGBRed_green_blue_alpha_(1.0, 1.0, 1.0, 0.90).CGColor()
         )
         self._backdrop_layers = {}
-        self._content_view = vfx
+        self._content_view = content
 
         # VoiceInputView — fills the full content view, resized per state by renderer
         self._orb_view = VoiceInputView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
         self._orb_view.setWantsLayer_(True)
         self._orb_view.layer().setBackgroundColor_(NSColor.clearColor().CGColor())
-        vfx.addSubview_(self._orb_view)
+        content.addSubview_(self._orb_view)
 
         # Label (transcript text)
         lw = float(self.ACTIVE_W) - 36.0
@@ -878,7 +896,7 @@ class OverlayPanel:
         self._label.setLineBreakMode_(NSLineBreakByWordWrapping)
         self._label.setStringValue_("")
         self._label.setHidden_(True)
-        vfx.addSubview_(self._label)
+        content.addSubview_(self._label)
 
         # Sublabel (hint)
         self._sublabel = NSTextField.alloc().initWithFrame_(NSMakeRect(18, 4, lw, 16))
@@ -893,9 +911,9 @@ class OverlayPanel:
         self._sublabel.setFont_(NSFont.systemFontOfSize_weight_(11.0, 0.05))
         self._sublabel.setStringValue_("")
         self._sublabel.setHidden_(True)
-        vfx.addSubview_(self._sublabel)
+        content.addSubview_(self._sublabel)
 
-        self._panel.setContentView_(vfx)
+        self._panel.setContentView_(content)
 
     # ------------------------------------------------------------------
     # Public API

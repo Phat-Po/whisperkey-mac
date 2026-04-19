@@ -2,6 +2,115 @@
 
 ---
 
+## 2026-04-20 | Hotkey suppression implemented — next: manual source test
+
+**Done this session:**
+- Implemented narrow Darwin `pynput` event interception in `whisperkey_mac/keyboard_listener.py`.
+- Listener now installs `darwin_intercept` without enabling global `suppress=True`.
+- Suppression is limited to the configured hands-free character key when the full combo is active, e.g. `cmd+char:\`.
+- Matching key-up events are also suppressed after a suppressed key-down, so the focused app does not receive an unmatched release.
+- Added sanitized diagnostics via `hotkey_event_suppressed`; logs use labels like `char:backslash`, not raw typed characters.
+- Added focused regression coverage in `tests/test_keyboard_listener.py`.
+
+**Verification:**
+- `.venv/bin/python -m compileall whisperkey_mac -q` -> passed.
+- `.venv/bin/python -m pytest tests/test_keyboard_listener.py -q` -> `14 passed`.
+
+**Current state:**
+- Automated hotkey listener checks pass.
+- Manual macOS source runtime test is still needed because CGEvent suppression must be confirmed against a real focused text field.
+- Existing uncommitted overlay/doc changes from the VoiceInput redesign remain unrelated and were not touched by this task.
+
+**Next step:**
+1. Launch from source with `./start.sh`.
+2. Test in Notes/TextEdit/browser text field:
+   - Plain `\` still types normally.
+   - `cmd+\` starts recording and does not insert `\`.
+   - `cmd+\` again stops/transcribes and does not insert `\`.
+   - Other shortcuts and normal typing remain unaffected.
+
+**Decisions / constraints:**
+- Do not run `packaging/macos/build_app.sh` unless explicitly approved.
+- Do not git push without explicit confirmation.
+- Do not change the user's hotkey config.
+
+---
+
+## 2026-04-19 | Hotkey suppression handoff prepared — next: stop cmd+\ from typing backslash
+
+**Done this session:**
+- User confirmed the VoiceInput pill visual/runtime path is acceptable enough to move forward.
+- User confirmed transcription works, Chinese speech outputs English, and voice cleanup works.
+- User confirmed overlay centering behaves correctly after setting the external display as the macOS main monitor.
+- Confirmed current hotkey config via source config load:
+  - `hold_key='alt_r'`
+  - `handsfree_keys=['cmd', 'char:\\']`
+- Confirmed the remaining issue is event pass-through: pressing `cmd+\` starts/stops recording but also inserts `\` into the focused app.
+- Created focused handoff: `HANDOFF-20260419-hotkey-suppression.md`.
+
+**Current state:**
+- Next task is in `whisperkey_mac/keyboard_listener.py`, not overlay rendering.
+- Current listener uses `pynput.keyboard.Listener(on_press=..., on_release=...)`, which listens but does not suppress forwarded key events.
+- The installed macOS `pynput` backend supports an `intercept` callback that can return `None` to suppress specific CGEvents.
+- Working tree already contains uncommitted overlay/doc changes from the VoiceInput redesign pass.
+
+**Next step:**
+1. Read `HANDOFF-20260419-hotkey-suppression.md`.
+2. Implement narrow suppression for the configured hands-free combo character key only.
+3. Add focused keyboard-listener tests.
+4. Verify with compileall, `tests/test_keyboard_listener.py`, and manual `./start.sh` testing in a text field.
+
+**Decisions / constraints:**
+- Do not run `packaging/macos/build_app.sh`.
+- Do not git push.
+- Do not change the user's hotkey config.
+- Do not touch `whisperkey_mac/overlay.py`, packaging, LaunchAgent, transcriber, correction, or output pipeline unless explicitly approved.
+
+---
+
+## 2026-04-19 | VoiceInput pill implemented — next: visual runtime test
+
+**Done this session:**
+- Snapshot committed before implementation: `7e9b809 snapshot: before voiceinput pill redesign`.
+- Implemented the native PyObjC VoiceInput-style overlay in `whisperkey_mac/overlay.py`.
+- Kept RESULT state: transcribed text + hint still render in the expanded result pill.
+- Removed the remaining HUD blur dependency from the new overlay content and kept the style as white translucent pill + 1px dark border.
+- Refreshed handoff instructions in `HANDOFF-20260419-voiceinput-redesign.md` for the next agent to run visual testing only.
+
+**Current state:**
+- Working tree has uncommitted changes in `whisperkey_mac/overlay.py`, `STATUS.md`, and the handoff doc.
+- The source overlay is now intended to be:
+  - IDLE: `52x52` compact mic circle.
+  - RECORDING / TRANSCRIBING: `220x52` pill.
+  - RESULT: `300px` wide pill that shows transcript text and the copied hint.
+- Do not use `dist/WhisperKey.app` for source visual verification unless a rebuild is explicitly approved; it may still contain older bundled code.
+
+**Verification so far:**
+- `.venv/bin/python -m compileall whisperkey_mac -q` -> passed.
+- `.venv/bin/python -m pytest tests/test_keyboard_listener.py -q` -> `9 passed`.
+- `.venv/bin/python -m pytest tests/test_overlay.py tests/test_keyboard_listener.py -q` -> `39 passed, 3 failed`.
+
+**Known test mismatch:**
+- The 3 failing overlay tests still assert old aurora/compact geometry:
+  - `test_panel_position` expects `84x84`; new spec is `52x52`.
+  - `test_transcribing_stays_compact_ring_only` expects compact `52x52`; new spec is `220x52`.
+  - `test_renderer_resets_result_layout_before_recording` expects recording width `PANEL_W=52`; new spec is active pill width `220`.
+- Tests were not edited because the handoff constraint said only touch `overlay.py`.
+
+**Next step:**
+1. Read `HANDOFF-20260419-voiceinput-redesign.md`.
+2. Launch from source with `./start.sh` and visually test the overlay state sequence.
+3. Confirm whether the visual matches the supplied VoiceInput button closely enough.
+4. If visuals pass, ask the user whether to update stale tests and/or commit the final source/doc changes.
+
+**Decisions / constraints:**
+- Do not run `packaging/macos/build_app.sh` unless explicitly approved.
+- Do not git push.
+- Do not switch to React/npm/shadcn/WebView.
+- Do not touch app config, packaging, LaunchAgent, or permissions unless the user explicitly asks.
+
+---
+
 ## 2026-04-19 | VoiceInput pill redesign planned — handoff ready for next agent
 
 **Done this session:**

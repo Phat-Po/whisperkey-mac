@@ -4,6 +4,11 @@ import threading
 import time
 from collections.abc import Callable
 from pynput import keyboard
+try:
+    from Quartz import kCGEventKeyDown, kCGEventKeyUp
+except Exception:  # pragma: no cover - non-macOS test/import fallback
+    kCGEventKeyDown = 10
+    kCGEventKeyUp = 11
 
 from whisperkey_mac.diagnostics import diag
 
@@ -204,6 +209,7 @@ class HotkeyListener:
         self._active_hold_key: keyboard.Key | keyboard.KeyCode | None = None
         self._handsfree_combo_active = False
         self._handsfree_stop_pending = False
+        self._suppressed_handsfree_keyups: set[str] = set()
 
         self._listener: keyboard.Listener | None = None
         self._paused: bool = True  # start paused; activated by start()
@@ -232,6 +238,7 @@ class HotkeyListener:
             self._held_keys.clear()
             self._handsfree_combo_active = False
             self._handsfree_stop_pending = False
+            self._suppressed_handsfree_keyups.clear()
             self._mode = "idle"
             self._active_hold_key = None
         if self._hold_timer:
@@ -251,6 +258,7 @@ class HotkeyListener:
             self._listener = keyboard.Listener(
                 on_press=self._on_press,
                 on_release=self._on_release,
+                darwin_intercept=self._intercept_darwin_event,
             )
             self._listener.start()
             created = True
@@ -275,6 +283,96 @@ class HotkeyListener:
             self._active_hold_key = None
 
     # ── internal ──────────────────────────────────────────────────────────────
+
+    def _intercept_darwin_event(self, event_type: int, event: object) -> object | None:
+        """Suppress only the character event that completes the hands-free combo."""
+        if event_type not in (kCGEventKeyDown, kCGEventKeyUp):
+            return event
+
+        key = self._key_from_darwin_event(event)
+        if key is None:
+            return event
+
+        if event_type == kCGEventKeyDown:
+            suppressed_name = self._handsfree_character_to_suppress_on_press(key)
+            if suppressed_name is None:
+                return event
+
+            with self._lock:
+                self._suppressed_handsfree_keyups.add(suppressed_name)
+            diag(
+                "hotkey_event_suppressed",
+                key=_safe_name_label(suppressed_name),
+                phase="down",
+                combo=_safe_names_label(self._handsfree_names),
+            )
+            return None
+
+        suppressed_name = self._handsfree_character_to_suppress_on_release(key)
+        if suppressed_name is None:
+            return event
+
+        diag(
+            "hotkey_event_suppressed",
+            key=_safe_name_label(suppressed_name),
+            phase="up",
+            combo=_safe_names_label(self._handsfree_names),
+        )
+        return None
+
+    def _key_from_darwin_event(
+        self,
+        event: object,
+    ) -> keyboard.Key | keyboard.KeyCode | None:
+        listener = self._listener
+        event_to_key = getattr(listener, "_event_to_key", None)
+        if event_to_key is None:
+            return None
+        try:
+            return event_to_key(event)
+        except Exception as exc:
+            diag("hotkey_event_parse_failed", reason=exc.__class__.__name__)
+            return None
+
+    def _handsfree_character_name_for_key(
+        self,
+        key: keyboard.Key | keyboard.KeyCode,
+    ) -> str | None:
+        for name in self._handsfree_names:
+            if name.startswith("char:") and _key_matches_name(key, name):
+                return name
+        return None
+
+    def _handsfree_character_to_suppress_on_press(
+        self,
+        key: keyboard.Key | keyboard.KeyCode,
+    ) -> str | None:
+        with self._lock:
+            if self._paused:
+                return None
+            handsfree_names = list(self._handsfree_names)
+            held = set(self._held_keys)
+
+        name = self._handsfree_character_name_for_key(key)
+        if name is None:
+            return None
+        if not _combo_pressed(handsfree_names, held):
+            return None
+        return name
+
+    def _handsfree_character_to_suppress_on_release(
+        self,
+        key: keyboard.Key | keyboard.KeyCode,
+    ) -> str | None:
+        name = self._handsfree_character_name_for_key(key)
+        if name is None:
+            return None
+
+        with self._lock:
+            if name not in self._suppressed_handsfree_keyups:
+                return None
+            self._suppressed_handsfree_keyups.remove(name)
+        return name
 
     def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
         if self._paused or key is None:
