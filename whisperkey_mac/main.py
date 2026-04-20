@@ -125,6 +125,7 @@ class App:
                 self._service.config,
                 launch_at_login_enabled=launch_enabled,
                 on_save=self._save_settings,
+                on_hotkey_capture_active=self._set_settings_hotkey_capture_active,
             )
             diag("app_settings_build_end")
         else:
@@ -135,6 +136,12 @@ class App:
     def _retry_open_settings(self) -> None:
         self._settings_retry_pending = False
         self.open_settings()
+
+    def _set_settings_hotkey_capture_active(self, active: bool) -> None:
+        if active:
+            self._service.suspend_hotkeys_for_settings()
+        else:
+            self._service.resume_hotkeys_after_settings()
 
     def _save_settings(self, config: AppConfig, api_key: str | None, launch_enabled: bool) -> None:
         diag("app_save_settings_start", launch_enabled=launch_enabled)

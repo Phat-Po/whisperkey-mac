@@ -9,6 +9,9 @@ from pathlib import Path
 
 CONFIG_PATH = Path.home() / ".config" / "whisperkey" / "config.json"
 
+VALID_PROMPT_MODES = {"disabled", "asr_correction", "custom", "voice_cleanup"}
+DEFAULT_MODE_CYCLE_TARGETS = ["asr_correction", "voice_cleanup"]
+
 
 @dataclass
 class AppConfig:
@@ -42,7 +45,10 @@ class AppConfig:
     # pynput Key name for hold-to-talk (press & hold → record, release → transcribe)
     hold_key: str = "alt_r"
     # pynput Key names for hands-free combo (both held simultaneously → toggle)
-    handsfree_keys: list = field(default_factory=lambda: ["alt_r", "cmd_r"])
+    handsfree_keys: list[str] = field(default_factory=lambda: ["alt_r", "cmd_r"])
+    # pynput Key names for cycling online_prompt_mode; empty list = disabled
+    mode_cycle_keys: list[str] = field(default_factory=list)
+    mode_cycle_targets: list[str] = field(default_factory=lambda: list(DEFAULT_MODE_CYCLE_TARGETS))
 
     # ── Output ────────────────────────────────────────────────────────────────
     auto_paste: bool = True
@@ -76,6 +82,36 @@ def _transcribe_language_to_whisper(code: str) -> str | None:
     if code in ("auto", ""):
         return None
     return code
+
+
+def _validate_config(cfg: AppConfig) -> None:
+    if not isinstance(cfg.handsfree_keys, list):
+        cfg.handsfree_keys = AppConfig().handsfree_keys
+    cfg.handsfree_keys = [str(item).strip() for item in cfg.handsfree_keys if str(item).strip()]
+
+    if not isinstance(cfg.mode_cycle_keys, list):
+        cfg.mode_cycle_keys = []
+    cfg.mode_cycle_keys = [str(item).strip() for item in cfg.mode_cycle_keys if str(item).strip()]
+
+    if not isinstance(cfg.mode_cycle_targets, list):
+        cfg.mode_cycle_targets = []
+    cfg.mode_cycle_targets = [
+        str(item).strip()
+        for item in cfg.mode_cycle_targets
+        if str(item).strip() in VALID_PROMPT_MODES and str(item).strip() != "custom"
+    ]
+    if not cfg.mode_cycle_targets:
+        cfg.mode_cycle_targets = list(DEFAULT_MODE_CYCLE_TARGETS)
+
+    if cfg.online_prompt_mode not in VALID_PROMPT_MODES:
+        cfg.online_prompt_mode = "asr_correction" if cfg.online_correct_enabled else "disabled"
+
+    if cfg.online_prompt_mode == "disabled" and cfg.online_correct_enabled:
+        cfg.online_prompt_mode = "asr_correction"
+    elif cfg.online_prompt_mode != "disabled" and not cfg.online_correct_enabled:
+        cfg.online_correct_enabled = True
+
+    cfg.online_correct_enabled = cfg.online_prompt_mode != "disabled"
 
 
 def load_config() -> AppConfig:
@@ -125,21 +161,13 @@ def load_config() -> AppConfig:
     if cfg.language is None and cfg.transcribe_language != "auto":
         cfg.language = _transcribe_language_to_whisper(cfg.transcribe_language)
 
-    if cfg.online_prompt_mode not in {"disabled", "asr_correction", "custom", "voice_cleanup"}:
-        cfg.online_prompt_mode = "asr_correction" if cfg.online_correct_enabled else "disabled"
-
-    if cfg.online_prompt_mode == "disabled" and cfg.online_correct_enabled:
-        cfg.online_prompt_mode = "asr_correction"
-    elif cfg.online_prompt_mode != "disabled" and not cfg.online_correct_enabled:
-        cfg.online_correct_enabled = True
-
-    cfg.online_correct_enabled = cfg.online_prompt_mode != "disabled"
+    _validate_config(cfg)
 
     return cfg
 
 
 def save_config(cfg: AppConfig) -> None:
-    cfg.online_correct_enabled = cfg.online_prompt_mode != "disabled"
+    _validate_config(cfg)
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(json.dumps(cfg.to_dict(), indent=2, ensure_ascii=False))
 

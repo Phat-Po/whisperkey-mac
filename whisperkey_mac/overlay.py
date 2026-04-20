@@ -64,6 +64,7 @@ def dispatch_to_main(fn, *args) -> None:
 class OverlayState(enum.Enum):
     HIDDEN = "hidden"
     IDLE = "idle"
+    MODE_SWITCH = "mode_switch"
     RECORDING = "recording"
     TRANSCRIBING = "transcribing"
     RESULT = "result"
@@ -71,11 +72,32 @@ class OverlayState(enum.Enum):
 
 _VALID_TRANSITIONS: dict[OverlayState, set[OverlayState]] = {
     OverlayState.HIDDEN: {OverlayState.IDLE},
-    OverlayState.IDLE: {OverlayState.RECORDING, OverlayState.HIDDEN},
+    OverlayState.IDLE: {OverlayState.MODE_SWITCH, OverlayState.RECORDING, OverlayState.HIDDEN},
+    OverlayState.MODE_SWITCH: {OverlayState.IDLE, OverlayState.RECORDING, OverlayState.HIDDEN},
     OverlayState.RECORDING: {OverlayState.TRANSCRIBING, OverlayState.IDLE},
     OverlayState.TRANSCRIBING: {OverlayState.RESULT, OverlayState.IDLE},
     OverlayState.RESULT: {OverlayState.IDLE},
 }
+
+MODE_SWITCH_LABELS = {
+    "en": {
+        "asr_correction": "ASR",
+        "voice_cleanup": "CLEAN",
+        "custom": "CUSTOM",
+        "disabled": "OFF",
+    },
+    "zh": {
+        "asr_correction": "校正",
+        "voice_cleanup": "润色",
+        "custom": "自定义",
+        "disabled": "关闭",
+    },
+}
+
+
+def mode_switch_label_for_mode(mode: str, ui_language: str = "en") -> str:
+    language = "zh" if ui_language == "zh" else "en"
+    return MODE_SWITCH_LABELS[language].get(mode, MODE_SWITCH_LABELS[language]["disabled"])
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +337,7 @@ class AuroraRenderer:
         orb_view,
         label,
         sublabel,
+        mode_label,
         content_view,
         root_layer,
         backdrop_layers: dict,
@@ -325,6 +348,7 @@ class AuroraRenderer:
         self._orb_view = orb_view
         self._label = label
         self._sublabel = sublabel
+        self._mode_label = mode_label
         self._content_view = content_view
         self._root_layer = root_layer
         self._backdrop_layers = backdrop_layers
@@ -364,6 +388,7 @@ class AuroraRenderer:
         self._orb_view._audio_level = 0.0
         self._orb_view._record_secs = 0
         self._hide_text()
+        self._hide_mode_label()
         self._clear_text()
 
         self._content_view.setFrame_(NSMakeRect(0, 0, self.IDLE_W, self.IDLE_H))
@@ -419,7 +444,9 @@ class AuroraRenderer:
         self._orb_view._audio_level = 0.0
         self._orb_view._record_secs = 0
         self._hide_text()
+        self._hide_mode_label()
         self._clear_text()
+        self._reset_text_layout()
 
         active_frame = self._active_frame(self.ACTIVE_H)
         self._content_view.setFrame_(NSMakeRect(0, 0, self.ACTIVE_W, self.ACTIVE_H))
@@ -455,7 +482,9 @@ class AuroraRenderer:
         self._orb_view._elapsed = 0.0
         self._orb_view._audio_level = 0.0
         self._hide_text()
+        self._hide_mode_label()
         self._clear_text()
+        self._reset_text_layout()
 
         active_frame = self._active_frame(self.ACTIVE_H)
         self._content_view.setFrame_(NSMakeRect(0, 0, self.ACTIVE_W, self.ACTIVE_H))
@@ -482,9 +511,52 @@ class AuroraRenderer:
 
         self._orb_view._orb_state = "result"
         self._orb_view._audio_level = 0.0
+        self._hide_mode_label()
         self._show_text()
         self._apply_result_layout(text)
         self._panel.setAlphaValue_(1.0)
+
+    def show_mode_switch(self, gen: int, label: str) -> None:
+        self._visual_gen = gen
+        self._mode = OverlayState.MODE_SWITCH
+        self._phase_started_at = time.monotonic()
+        self._elapsed = 0.0
+
+        idle_frame = self._idle_frame()
+
+        self._orb_view._orb_state = "idle"
+        self._orb_view._elapsed = 0.0
+        self._orb_view._audio_level = 0.0
+        self._orb_view._record_secs = 0
+        self._hide_text()
+        self._clear_text()
+
+        self._content_view.setFrame_(NSMakeRect(0, 0, self.IDLE_W, self.IDLE_H))
+        self._content_view.layer().setFrame_(NSMakeRect(0, 0, self.IDLE_W, self.IDLE_H))
+        self._root_layer.setCornerRadius_(self.IDLE_CORNER_RADIUS)
+        self._root_layer.setBorderWidth_(1.0)
+        self._root_layer.setBorderColor_(
+            NSColor.colorWithSRGBRed_green_blue_alpha_(0.0, 0.0, 0.0, 0.10).CGColor()
+        )
+        self._root_layer.setBackgroundColor_(
+            NSColor.colorWithSRGBRed_green_blue_alpha_(1.0, 1.0, 1.0, 0.90).CGColor()
+        )
+
+        self._orb_view.setFrame_(NSMakeRect(0, 0, self.IDLE_W, self.IDLE_H))
+        self._orb_view.setNeedsDisplay_(True)
+
+        self._panel.setFrame_display_(idle_frame, False)
+        self._panel.setAlphaValue_(1.0)
+        self._panel.orderFront_(None)
+
+        self._mode_label.setStringValue_(label)
+        self._mode_label.setFrame_(NSMakeRect(0, 0, self.IDLE_W, self.IDLE_H))
+        self._mode_label.setHidden_(False)
+        self._mode_label.setAlphaValue_(0.0)
+        self._animate_view_alpha(self._mode_label, 1.0, 0.15)
+        callLater(1.05, lambda: self._fade_mode_label(gen))
+
+        self._schedule_tick(gen)
 
     def hide_to_idle(self, gen: int) -> None:
         self.show_idle(gen)
@@ -526,6 +598,7 @@ class AuroraRenderer:
             return
         if self._mode not in (
             OverlayState.IDLE,
+            OverlayState.MODE_SWITCH,
             OverlayState.RECORDING,
             OverlayState.TRANSCRIBING,
         ):
@@ -626,6 +699,16 @@ class AuroraRenderer:
         if completion is not None:
             callLater(duration_s, completion)
 
+    def _animate_view_alpha(self, view, target_alpha: float, duration_s: float) -> None:
+        NSAnimationContext.beginGrouping()
+        ctx = NSAnimationContext.currentContext()
+        ctx.setDuration_(duration_s)
+        ctx.setTimingFunction_(
+            CAMediaTimingFunction.functionWithName_(kCAMediaTimingFunctionEaseInEaseOut)
+        )
+        view.animator().setAlphaValue_(target_alpha)
+        NSAnimationContext.endGrouping()
+
     # ------------------------------------------------------------------
     # Text helpers
     # ------------------------------------------------------------------
@@ -637,6 +720,11 @@ class AuroraRenderer:
         self._label.cell().setWraps_(True)
         self._label.cell().setScrollable_(False)
         self._label.cell().setLineBreakMode_(NSLineBreakByWordWrapping)
+
+    def _fade_mode_label(self, gen: int) -> None:
+        if gen != self._visual_gen or self._mode != OverlayState.MODE_SWITCH:
+            return
+        self._animate_view_alpha(self._mode_label, 0.0, 0.15)
 
     def _show_text(self) -> None:
         self._label.setHidden_(False)
@@ -650,8 +738,28 @@ class AuroraRenderer:
         self._label.setStringValue_("")
         self._sublabel.setStringValue_("")
 
+    def _reset_text_layout(self) -> None:
+        content_w = self.RESULT_W - self.HORIZONTAL_INSET * 2
+        self._label.setFrame_(
+            NSMakeRect(
+                self.HORIZONTAL_INSET,
+                self.BOTTOM_PADDING + self.SUBLABEL_HEIGHT + self.TEXT_GAP,
+                content_w,
+                self.BASE_LABEL_HEIGHT,
+            )
+        )
+        self._sublabel.setFrame_(
+            NSMakeRect(self.HORIZONTAL_INSET, self.BOTTOM_PADDING, content_w, self.SUBLABEL_HEIGHT)
+        )
+
+    def _hide_mode_label(self) -> None:
+        self._mode_label.setHidden_(True)
+        self._mode_label.setAlphaValue_(0.0)
+        self._mode_label.setStringValue_("")
+
     def _reset_visuals(self) -> None:
         self._hide_text()
+        self._hide_mode_label()
         self._clear_text()
         if self._orb_view is not None:
             self._orb_view._orb_state = "idle"
@@ -673,10 +781,12 @@ class OverlayStateMachine:
         label,
         sublabel,
         renderer: AuroraRenderer | None = None,
+        mode_label=None,
     ) -> None:
         self._panel = panel
         self._label = label
         self._sublabel = sublabel
+        self._mode_label = mode_label
         self._renderer = renderer
         self._state = OverlayState.HIDDEN
         self._dismiss_gen = 0
@@ -744,6 +854,16 @@ class OverlayStateMachine:
             self._renderer.show_result(gen, text)
         callLater(display_duration_s, lambda: self._auto_dismiss(gen, dismiss_duration_s))
 
+    def show_mode_switch(self, label: str) -> None:
+        if not self._transition(OverlayState.MODE_SWITCH):
+            return
+        gen = self._advance_gen()
+        if self._mode_label is not None:
+            self._mode_label.setStringValue_(label)
+        if self._renderer is not None:
+            self._renderer.show_mode_switch(gen, label)
+        callLater(1.2, lambda: self._auto_dismiss_mode_switch(gen))
+
     def hide_after_paste(self, dismiss_duration_s: float = 0.2) -> None:
         if self._state == OverlayState.HIDDEN:
             return
@@ -769,6 +889,17 @@ class OverlayStateMachine:
         self._panel.orderOut_(None)
         self._panel.setAlphaValue_(0.0)
 
+    def _auto_dismiss_mode_switch(self, gen: int) -> None:
+        if gen != self._dismiss_gen or self._state != OverlayState.MODE_SWITCH:
+            return
+        self._state = OverlayState.IDLE
+        next_gen = self._advance_gen()
+        if self._renderer is not None:
+            self._renderer.hide_to_idle(next_gen)
+            return
+        self._panel.setAlphaValue_(1.0)
+        self._panel.orderFront_(None)
+
 
 # ---------------------------------------------------------------------------
 # Overlay Panel
@@ -791,6 +922,7 @@ class OverlayPanel:
         self._panel = None
         self._label = None
         self._sublabel = None
+        self._mode_label = None
         self._content_view = None
         self._root_layer = None
         self._backdrop_layers = {}
@@ -841,6 +973,7 @@ class OverlayPanel:
             self._orb_view,
             self._label,
             self._sublabel,
+            self._mode_label,
             self._content_view,
             self._root_layer,
             self._backdrop_layers,
@@ -851,6 +984,7 @@ class OverlayPanel:
             self._label,
             self._sublabel,
             self._renderer,
+            self._mode_label,
         )
 
         print("[whisperkey] Overlay panel configured (invisible, alpha=0).")
@@ -913,6 +1047,21 @@ class OverlayPanel:
         self._sublabel.setHidden_(True)
         content.addSubview_(self._sublabel)
 
+        self._mode_label = NSTextField.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+        self._mode_label.setEditable_(False)
+        self._mode_label.setSelectable_(False)
+        self._mode_label.setDrawsBackground_(False)
+        self._mode_label.setBezeled_(False)
+        self._mode_label.setTextColor_(
+            NSColor.colorWithSRGBRed_green_blue_alpha_(0.078, 0.078, 0.078, 0.92)
+        )
+        self._mode_label.setAlignment_(NSTextAlignmentCenter)
+        self._mode_label.setFont_(NSFont.monospacedDigitSystemFontOfSize_weight_(13.0, 0.25))
+        self._mode_label.setStringValue_("")
+        self._mode_label.setHidden_(True)
+        self._mode_label.setAlphaValue_(0.0)
+        content.addSubview_(self._mode_label)
+
         self._panel.setContentView_(content)
 
     # ------------------------------------------------------------------
@@ -944,6 +1093,11 @@ class OverlayPanel:
     ) -> None:
         diag("overlay_show_result", display_duration_s=display_duration_s, dismiss_duration_s=dismiss_duration_s)
         self._state_machine.show_result(text, hint, display_duration_s, dismiss_duration_s)
+
+    def show_mode_switch(self, mode: str, ui_language: str = "en") -> None:
+        label = mode_switch_label_for_mode(mode, ui_language)
+        diag("overlay_show_mode_switch", mode=mode, label=label)
+        self._state_machine.show_mode_switch(label)
 
     def hide_after_paste(self, dismiss_duration_s: float = 0.2) -> None:
         diag("overlay_hide_after_paste", dismiss_duration_s=dismiss_duration_s)

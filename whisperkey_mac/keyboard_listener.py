@@ -63,6 +63,28 @@ _GENERIC_MODIFIER_NAMES: dict[keyboard.Key, str] = {
     keyboard.Key.shift: "shift",
 }
 
+# macOS US-ANSI virtual keycode → base (no-modifier) character.
+# pynput reports KeyCode.char after applying the Option layer
+# (e.g. Option+= → '≠'), but recorder stores the base character
+# via charactersIgnoringModifiers. This table lets _key_matches_name
+# fall back to physical-key equality via KeyCode.vk.
+_VK_TO_BASE_CHAR: dict[int, str] = {
+    0x00: "a", 0x0B: "b", 0x08: "c", 0x02: "d", 0x0E: "e",
+    0x03: "f", 0x05: "g", 0x04: "h", 0x22: "i", 0x26: "j",
+    0x28: "k", 0x25: "l", 0x2E: "m", 0x2D: "n", 0x1F: "o",
+    0x23: "p", 0x0C: "q", 0x0F: "r", 0x01: "s", 0x11: "t",
+    0x20: "u", 0x09: "v", 0x0D: "w", 0x07: "x", 0x10: "y",
+    0x06: "z",
+    0x12: "1", 0x13: "2", 0x14: "3", 0x15: "4", 0x17: "5",
+    0x16: "6", 0x1A: "7", 0x1C: "8", 0x19: "9", 0x1D: "0",
+    0x1B: "-", 0x18: "=",
+    0x21: "[", 0x1E: "]", 0x2A: "\\",
+    0x29: ";", 0x27: "'",
+    0x2B: ",", 0x2F: ".", 0x2C: "/",
+    0x32: "`",
+    0x31: " ",
+}
+
 
 def key_name_to_pynput(name: str) -> keyboard.Key | keyboard.KeyCode | None:
     if name.startswith("char:") and len(name) > 5:
@@ -94,10 +116,18 @@ def _normalize_key_name(name: str) -> str | None:
 def _key_matches_name(key: keyboard.Key | keyboard.KeyCode, configured_name: str) -> bool:
     actual_name = pynput_key_to_name(key)
     if actual_name is None:
-        return False
+        actual_name = ""
     if configured_name in _GENERIC_MODIFIER_MATCHES:
         return actual_name in _GENERIC_MODIFIER_MATCHES[configured_name]
-    return actual_name == configured_name
+    if actual_name == configured_name:
+        return True
+    if configured_name.startswith("char:") and isinstance(key, keyboard.KeyCode):
+        vk = getattr(key, "vk", None)
+        if vk is not None:
+            base_char = _VK_TO_BASE_CHAR.get(int(vk))
+            if base_char is not None and f"char:{base_char}" == configured_name:
+                return True
+    return False
 
 
 def _names_overlap(left: str, right: str) -> bool:
@@ -183,6 +213,8 @@ class HotkeyListener:
         on_record_start: Callable[[], None],
         on_record_stop_transcribe: Callable[[], None],
         on_enter: Callable[[], None],
+        mode_cycle_keys: list[str] | None = None,
+        on_mode_cycle: Callable[[], None] | None = None,
     ) -> None:
         self._hold_name = _normalize_key_name(hold_key) or "alt_r"
         self._hold_pkey = key_name_to_pynput(self._hold_name) or keyboard.Key.alt_r
@@ -193,12 +225,20 @@ class HotkeyListener:
         self._handsfree_pkeys: list[keyboard.Key | keyboard.KeyCode] = [
             key_name_to_pynput(name) for name in self._handsfree_names
         ]
+        self._mode_cycle_names = [
+            name for name in (mode_cycle_keys or [])
+            if _normalize_key_name(name) is not None
+        ]
+        self._mode_cycle_pkeys: list[keyboard.Key | keyboard.KeyCode] = [
+            key_name_to_pynput(name) for name in self._mode_cycle_names
+        ]
         self._hold_conflicts_with_handsfree = any(
             _names_overlap(self._hold_name, name) for name in self._handsfree_names
         )
 
         self._on_record_start = on_record_start
         self._on_record_stop_transcribe = on_record_stop_transcribe
+        self._on_mode_cycle = on_mode_cycle or (lambda: None)
 
         self._lock = threading.Lock()
         self._held_keys: set = set()
@@ -207,9 +247,12 @@ class HotkeyListener:
         self._hold_press_time: float = 0.0
         self._hold_timer: threading.Timer | None = None
         self._active_hold_key: keyboard.Key | keyboard.KeyCode | None = None
+        self._hold_consumed_until_release: bool = False
         self._handsfree_combo_active = False
+        self._mode_cycle_combo_active = False
         self._handsfree_stop_pending = False
         self._suppressed_handsfree_keyups: set[str] = set()
+        self._suppressed_mode_cycle_keyups: set[str] = set()
 
         self._listener: keyboard.Listener | None = None
         self._paused: bool = True  # start paused; activated by start()
@@ -217,10 +260,16 @@ class HotkeyListener:
             "hotkey_listener_config",
             hold_key=_safe_name_label(self._hold_name),
             handsfree_keys=_safe_names_label(self._handsfree_names),
+            mode_cycle_keys=_safe_names_label(self._mode_cycle_names),
             hold_conflicts_with_handsfree=self._hold_conflicts_with_handsfree,
         )
 
-    def update_keys(self, hold_key: str, handsfree_keys: list[str]) -> None:
+    def update_keys(
+        self,
+        hold_key: str,
+        handsfree_keys: list[str],
+        mode_cycle_keys: list[str] | None = None,
+    ) -> None:
         """Update key bindings in-place without stopping the listener."""
         with self._lock:
             self._hold_name = _normalize_key_name(hold_key) or "alt_r"
@@ -232,15 +281,25 @@ class HotkeyListener:
             self._handsfree_pkeys = [
                 key_name_to_pynput(name) for name in self._handsfree_names
             ]
+            self._mode_cycle_names = [
+                name for name in (mode_cycle_keys or [])
+                if _normalize_key_name(name) is not None
+            ]
+            self._mode_cycle_pkeys = [
+                key_name_to_pynput(name) for name in self._mode_cycle_names
+            ]
             self._hold_conflicts_with_handsfree = any(
                 _names_overlap(self._hold_name, name) for name in self._handsfree_names
             )
             self._held_keys.clear()
             self._handsfree_combo_active = False
+            self._mode_cycle_combo_active = False
             self._handsfree_stop_pending = False
             self._suppressed_handsfree_keyups.clear()
+            self._suppressed_mode_cycle_keyups.clear()
             self._mode = "idle"
             self._active_hold_key = None
+            self._hold_consumed_until_release = False
         if self._hold_timer:
             self._hold_timer.cancel()
             self._hold_timer = None
@@ -248,6 +307,7 @@ class HotkeyListener:
             "hotkey_listener_update",
             hold_key=_safe_name_label(self._hold_name),
             handsfree_keys=_safe_names_label(self._handsfree_names),
+            mode_cycle_keys=_safe_names_label(self._mode_cycle_names),
             hold_conflicts_with_handsfree=self._hold_conflicts_with_handsfree,
         )
 
@@ -278,9 +338,11 @@ class HotkeyListener:
         with self._lock:
             self._held_keys.clear()
             self._handsfree_combo_active = False
+            self._mode_cycle_combo_active = False
             self._handsfree_stop_pending = False
             self._mode = "idle"
             self._active_hold_key = None
+            self._hold_consumed_until_release = False
 
     # ── internal ──────────────────────────────────────────────────────────────
 
@@ -295,20 +357,36 @@ class HotkeyListener:
 
         if event_type == kCGEventKeyDown:
             suppressed_name = self._handsfree_character_to_suppress_on_press(key)
+            combo_name = "handsfree"
+            combo_keys = self._handsfree_names
+            if suppressed_name is None:
+                suppressed_name = self._mode_cycle_character_to_suppress_on_press(key)
+                combo_name = "mode_cycle"
+                combo_keys = self._mode_cycle_names
             if suppressed_name is None:
                 return event
 
             with self._lock:
-                self._suppressed_handsfree_keyups.add(suppressed_name)
+                if combo_name == "handsfree":
+                    self._suppressed_handsfree_keyups.add(suppressed_name)
+                else:
+                    self._suppressed_mode_cycle_keyups.add(suppressed_name)
             diag(
                 "hotkey_event_suppressed",
                 key=_safe_name_label(suppressed_name),
                 phase="down",
-                combo=_safe_names_label(self._handsfree_names),
+                combo=_safe_names_label(combo_keys),
+                combo_type=combo_name,
             )
             return None
 
         suppressed_name = self._handsfree_character_to_suppress_on_release(key)
+        combo_name = "handsfree"
+        combo_keys = self._handsfree_names
+        if suppressed_name is None:
+            suppressed_name = self._mode_cycle_character_to_suppress_on_release(key)
+            combo_name = "mode_cycle"
+            combo_keys = self._mode_cycle_names
         if suppressed_name is None:
             return event
 
@@ -316,7 +394,8 @@ class HotkeyListener:
             "hotkey_event_suppressed",
             key=_safe_name_label(suppressed_name),
             phase="up",
-            combo=_safe_names_label(self._handsfree_names),
+            combo=_safe_names_label(combo_keys),
+            combo_type=combo_name,
         )
         return None
 
@@ -339,6 +418,15 @@ class HotkeyListener:
         key: keyboard.Key | keyboard.KeyCode,
     ) -> str | None:
         for name in self._handsfree_names:
+            if name.startswith("char:") and _key_matches_name(key, name):
+                return name
+        return None
+
+    def _mode_cycle_character_name_for_key(
+        self,
+        key: keyboard.Key | keyboard.KeyCode,
+    ) -> str | None:
+        for name in self._mode_cycle_names:
             if name.startswith("char:") and _key_matches_name(key, name):
                 return name
         return None
@@ -374,6 +462,37 @@ class HotkeyListener:
             self._suppressed_handsfree_keyups.remove(name)
         return name
 
+    def _mode_cycle_character_to_suppress_on_press(
+        self,
+        key: keyboard.Key | keyboard.KeyCode,
+    ) -> str | None:
+        with self._lock:
+            if self._paused:
+                return None
+            mode_cycle_names = list(self._mode_cycle_names)
+            held = set(self._held_keys)
+
+        name = self._mode_cycle_character_name_for_key(key)
+        if name is None:
+            return None
+        if not _combo_pressed(mode_cycle_names, held):
+            return None
+        return name
+
+    def _mode_cycle_character_to_suppress_on_release(
+        self,
+        key: keyboard.Key | keyboard.KeyCode,
+    ) -> str | None:
+        name = self._mode_cycle_character_name_for_key(key)
+        if name is None:
+            return None
+
+        with self._lock:
+            if name not in self._suppressed_mode_cycle_keyups:
+                return None
+            self._suppressed_mode_cycle_keyups.remove(name)
+        return name
+
     def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
         if self._paused or key is None:
             if key is not None:
@@ -386,17 +505,20 @@ class HotkeyListener:
             mode = self._mode
             held = set(self._held_keys)
             combo_active = self._handsfree_combo_active
+            mode_cycle_active = self._mode_cycle_combo_active
             stop_pending = self._handsfree_stop_pending
             hold_match = _key_matches_name(key, self._hold_name)
 
         # Check hands-free combo (all handsfree keys held simultaneously)
         combo_pressed = _combo_pressed(self._handsfree_names, held)
+        mode_cycle_pressed = _combo_pressed(self._mode_cycle_names, held)
         diag(
             "hotkey_press",
             key=_safe_key_label(key),
             mode=mode,
             hold_match=hold_match,
             combo_complete=combo_pressed,
+            mode_cycle_complete=mode_cycle_pressed,
             held_count=len(held),
         )
         if combo_pressed:
@@ -426,6 +548,26 @@ class HotkeyListener:
                 print("[whisperkey] Hands-free ON — recording...")
                 self._on_record_start()
             return
+
+        if mode_cycle_pressed:
+            should_cycle = False
+            cancelled_timer: threading.Timer | None = None
+            with self._lock:
+                if self._mode == "idle" and not mode_cycle_active:
+                    self._mode_cycle_combo_active = True
+                    should_cycle = True
+                    if self._active_hold_key is not None:
+                        self._hold_consumed_until_release = True
+                        cancelled_timer = self._hold_timer
+                        self._hold_timer = None
+            if cancelled_timer is not None:
+                cancelled_timer.cancel()
+                diag("hotkey_hold_timer_cancel", reason="mode_cycle_consumed")
+            if should_cycle:
+                diag("hotkey_mode_cycle_match", combo=_safe_names_label(self._mode_cycle_names))
+                self._on_mode_cycle()
+            return
+
         if self._handsfree_names:
             diag(
                 "hotkey_combo_incomplete",
@@ -468,6 +610,11 @@ class HotkeyListener:
         should_handle_hold_release = False
         with self._lock:
             self._held_keys.discard(key)
+            release_vk = getattr(key, "vk", None)
+            if release_vk is not None:
+                for held_key in list(self._held_keys):
+                    if getattr(held_key, "vk", None) == release_vk:
+                        self._held_keys.discard(held_key)
             mode = self._mode
             held = set(self._held_keys)
             hold_match = _key_matches_name(key, self._hold_name)
@@ -477,8 +624,11 @@ class HotkeyListener:
             )
 
             combo_pressed = _combo_pressed(self._handsfree_names, held)
+            mode_cycle_pressed = _combo_pressed(self._mode_cycle_names, held)
             if self._handsfree_combo_active and not combo_pressed:
                 self._handsfree_combo_active = False
+            if self._mode_cycle_combo_active and not mode_cycle_pressed:
+                self._mode_cycle_combo_active = False
 
             if self._handsfree_stop_pending:
                 any_handsfree_held = _any_configured_key_held(self._handsfree_names, held)
@@ -493,6 +643,7 @@ class HotkeyListener:
             hold_match=hold_match,
             active_hold_release=should_handle_hold_release,
             combo_complete=combo_pressed,
+            mode_cycle_complete=mode_cycle_pressed,
             held_count=len(held),
         )
 
@@ -502,10 +653,17 @@ class HotkeyListener:
                 timer = self._hold_timer
                 self._hold_timer = None
                 self._active_hold_key = None
+                was_consumed = self._hold_consumed_until_release
+                self._hold_consumed_until_release = False
 
             if timer is not None:
                 timer.cancel()
                 diag("hotkey_hold_timer_cancel", key=_safe_key_label(key), reason="released")
+
+            # Hold was consumed by a combo (e.g. mode_cycle) — skip recording paths
+            if was_consumed:
+                diag("hotkey_hold_release_after_combo", key=_safe_key_label(key))
+                return
 
             # If already in hold_recording, stop and transcribe
             if mode == "hold_recording":
@@ -521,6 +679,10 @@ class HotkeyListener:
 
     def _start_hold_recording(self) -> None:
         with self._lock:
+            if self._hold_consumed_until_release:
+                diag("hotkey_hold_start_ignored", reason="consumed_by_combo")
+                self._hold_timer = None
+                return
             if self._mode != "idle":
                 diag("hotkey_hold_start_ignored", reason="mode_changed", mode=self._mode)
                 self._hold_timer = None

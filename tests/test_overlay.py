@@ -25,6 +25,7 @@ from whisperkey_mac.overlay import (
     OverlayState,
     OverlayStateMachine,
     dispatch_to_main,
+    mode_switch_label_for_mode,
 )
 
 
@@ -54,12 +55,15 @@ def test_panel_position(panel):
     screen = NSScreen.mainScreen()
     screen_width = screen.frame().size.width
 
-    # Idle panel is 84×84 (compact circle); bottom margin y=40 unchanged
-    assert frame.size.width == 84.0, f"Idle panel width must be 84, got {frame.size.width}"
-    assert frame.size.height == 84.0, f"Idle panel height must be 84, got {frame.size.height}"
+    assert frame.size.width == OverlayPanel.PANEL_W, (
+        f"Idle panel width must be {OverlayPanel.PANEL_W}, got {frame.size.width}"
+    )
+    assert frame.size.height == OverlayPanel.PANEL_H, (
+        f"Idle panel height must be {OverlayPanel.PANEL_H}, got {frame.size.height}"
+    )
     assert frame.origin.y == 40.0, f"Panel y must be 40.0 (bottom margin), got {frame.origin.y}"
 
-    expected_x = (screen_width - 84) / 2
+    expected_x = (screen_width - OverlayPanel.PANEL_W) / 2
     assert abs(frame.origin.x - expected_x) <= 1.0, (
         f"Panel x must be within 1px of {expected_x} (centered), got {frame.origin.x}"
     )
@@ -328,8 +332,8 @@ def test_renderer_resets_result_layout_before_recording():
     with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
         overlay._renderer.show_recording(2)
 
-    assert overlay._panel.frame().size.width == overlay.PANEL_W
-    assert overlay._panel.frame().size.height == overlay.PANEL_H
+    assert overlay._content_view.frame().size.width == overlay._renderer.ACTIVE_W
+    assert overlay._content_view.frame().size.height == overlay._renderer.ACTIVE_H
     assert overlay._label.frame().size.height == overlay._renderer.BASE_LABEL_HEIGHT
 
 
@@ -340,8 +344,8 @@ def test_recording_stays_compact_ring_only():
         overlay.show_idle()
         overlay.show_recording()
 
-    assert overlay._panel.frame().size.width == overlay.PANEL_W
-    assert overlay._panel.frame().size.height == overlay.PANEL_H
+    assert overlay._content_view.frame().size.width == overlay._renderer.ACTIVE_W
+    assert overlay._content_view.frame().size.height == overlay._renderer.ACTIVE_H
     assert overlay._label.isHidden() is True
     assert overlay._sublabel.isHidden() is True
 
@@ -354,8 +358,8 @@ def test_transcribing_stays_compact_ring_only():
         overlay.show_recording()
         overlay.show_transcribing()
 
-    assert overlay._panel.frame().size.width == overlay.PANEL_W
-    assert overlay._panel.frame().size.height == overlay.PANEL_H
+    assert overlay._panel.frame().size.width == overlay._renderer.ACTIVE_W
+    assert overlay._panel.frame().size.height == overlay._renderer.ACTIVE_H
     assert overlay._label.isHidden() is True
     assert overlay._sublabel.isHidden() is True
 
@@ -380,6 +384,68 @@ def test_result_label_uses_word_wrapping_for_three_line_results():
 
     assert overlay._label.maximumNumberOfLines() == 3
     assert overlay._label.lineBreakMode() == NSLineBreakByWordWrapping
+
+
+def test_mode_switch_label_uses_short_localized_text():
+    assert mode_switch_label_for_mode("asr_correction", "en") == "ASR"
+    assert mode_switch_label_for_mode("voice_cleanup", "en") == "CLEAN"
+    assert mode_switch_label_for_mode("custom", "zh") == "自定义"
+    assert mode_switch_label_for_mode("disabled", "zh") == "关闭"
+
+
+def test_show_mode_switch_overlays_label_without_expanding_orb():
+    overlay = OverlayPanel.create(result_max_lines=3)
+
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        overlay.show_idle()
+        overlay.show_mode_switch("voice_cleanup", "en")
+
+    assert overlay._state_machine._state == OverlayState.MODE_SWITCH
+    assert overlay._orb_view._orb_state == "idle"
+    assert overlay._panel.frame().size.width == overlay.PANEL_W
+    assert overlay._panel.frame().size.height == overlay.PANEL_H
+    assert overlay._mode_label.stringValue() == "CLEAN"
+    assert overlay._mode_label.isHidden() is False
+    assert overlay._label.isHidden() is True
+    assert overlay._sublabel.isHidden() is True
+
+
+def test_mode_switch_auto_dismiss_returns_to_idle():
+    renderer = unittest.mock.MagicMock()
+    machine = OverlayStateMachine(
+        unittest.mock.MagicMock(),
+        unittest.mock.MagicMock(),
+        unittest.mock.MagicMock(),
+        renderer,
+    )
+
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+        machine.show_mode_switch("ASR")
+
+    gen = machine._dismiss_gen
+    machine._auto_dismiss_mode_switch(gen)
+
+    assert machine._state == OverlayState.IDLE
+    renderer.hide_to_idle.assert_called_once()
+
+
+def test_mode_switch_does_not_interrupt_recording_state():
+    renderer = unittest.mock.MagicMock()
+    machine = OverlayStateMachine(
+        unittest.mock.MagicMock(),
+        unittest.mock.MagicMock(),
+        unittest.mock.MagicMock(),
+        renderer,
+    )
+
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        machine.show_idle()
+        machine.show_recording()
+        machine.show_mode_switch("CLEAN")
+
+    assert machine._state == OverlayState.RECORDING
+    renderer.show_mode_switch.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

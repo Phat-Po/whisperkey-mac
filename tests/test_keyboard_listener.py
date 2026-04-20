@@ -225,6 +225,53 @@ def test_handsfree_supports_cmd_backslash_keycode_combo():
     on_stop.assert_called_once_with()
 
 
+def test_mode_cycle_combo_triggers_callback_once_per_press():
+    on_cycle = unittest.mock.MagicMock()
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["alt_r", "cmd_r"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+        mode_cycle_keys=["cmd", "shift", "char:m"],
+        on_mode_cycle=on_cycle,
+    )
+    _unpause(listener)
+    m_key = keyboard.KeyCode.from_char("m")
+
+    listener._on_press(keyboard.Key.cmd)
+    listener._on_press(keyboard.Key.shift)
+    listener._on_press(m_key)
+    listener._on_press(m_key)
+
+    on_cycle.assert_called_once_with()
+
+
+def test_intercept_suppresses_mode_cycle_character_down_and_up():
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["alt_r", "cmd_r"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+        mode_cycle_keys=["cmd", "char:m"],
+        on_mode_cycle=unittest.mock.MagicMock(),
+    )
+    listener._listener = _FakeDarwinListener()
+    _unpause(listener)
+    m_key = keyboard.KeyCode.from_char("m")
+
+    listener._on_press(keyboard.Key.cmd)
+    listener._on_press(m_key)
+
+    down_result = listener._intercept_darwin_event(keyboard_listener_module.kCGEventKeyDown, m_key)
+    listener._on_release(m_key)
+    up_result = listener._intercept_darwin_event(keyboard_listener_module.kCGEventKeyUp, m_key)
+
+    assert down_result is None
+    assert up_result is None
+
+
 def test_generic_cmd_handsfree_matches_right_command_key():
     on_start = unittest.mock.MagicMock()
     listener = HotkeyListener(
@@ -338,6 +385,144 @@ def test_handsfree_combo_cancels_conflicting_hold_key_timer():
     assert timers[0].delay > 0.15
     assert timers[0].cancelled is True
     on_start.assert_called_once_with()
+
+
+def test_key_matches_name_falls_back_to_vk_for_option_layer_char():
+    from whisperkey_mac.keyboard_listener import _key_matches_name
+
+    option_equal = keyboard.KeyCode.from_char("≠", vk=0x18)
+    assert _key_matches_name(option_equal, "char:=") is True
+    assert _key_matches_name(option_equal, "char:-") is False
+
+    plain_backslash = keyboard.KeyCode.from_char("\\", vk=0x2A)
+    assert _key_matches_name(plain_backslash, "char:\\") is True
+
+    plain_m = keyboard.KeyCode.from_char("m", vk=0x2E)
+    assert _key_matches_name(plain_m, "char:m") is True
+
+
+def test_combo_pressed_matches_option_plus_equal():
+    from whisperkey_mac.keyboard_listener import _combo_pressed
+
+    option_equal = keyboard.KeyCode.from_char("≠", vk=0x18)
+    held = {keyboard.Key.alt, option_equal}
+    assert _combo_pressed(["alt", "char:="], held) is True
+
+
+def test_mode_cycle_fires_on_option_equal_combo():
+    on_cycle = unittest.mock.MagicMock()
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+        mode_cycle_keys=["alt", "char:="],
+        on_mode_cycle=on_cycle,
+    )
+    _unpause(listener)
+
+    listener._on_press(keyboard.Key.alt)
+    listener._on_press(keyboard.KeyCode.from_char("≠", vk=0x18))
+
+    on_cycle.assert_called_once_with()
+
+
+def test_release_of_option_layer_char_clears_held_by_vk():
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+        mode_cycle_keys=["alt", "char:="],
+        on_mode_cycle=unittest.mock.MagicMock(),
+    )
+    _unpause(listener)
+
+    listener._on_press(keyboard.Key.alt)
+    listener._on_press(keyboard.KeyCode.from_char("≠", vk=0x18))
+    listener._on_release(keyboard.Key.alt)
+    listener._on_release(keyboard.KeyCode.from_char("=", vk=0x18))
+
+    assert listener._held_keys == set()
+    assert listener._mode_cycle_combo_active is False
+
+
+def test_mode_cycle_consumes_hold_prevents_recording():
+    timers: list[_FakeTimer] = []
+
+    def _make_timer(*args, **kwargs):
+        timer = _FakeTimer(*args, **kwargs)
+        timers.append(timer)
+        return timer
+
+    on_start = unittest.mock.MagicMock()
+    on_cycle = unittest.mock.MagicMock()
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=on_start,
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+        mode_cycle_keys=["alt", "char:="],
+        on_mode_cycle=on_cycle,
+    )
+    _unpause(listener)
+
+    with unittest.mock.patch("whisperkey_mac.keyboard_listener.threading.Timer", side_effect=_make_timer):
+        listener._on_press(keyboard.Key.alt_r)
+        listener._on_press(keyboard.KeyCode.from_char("≠", vk=0x18))
+
+    on_cycle.assert_called_once_with()
+    assert len(timers) == 1
+    assert timers[0].cancelled is True
+    assert listener._hold_consumed_until_release is True
+
+    # Even if the timer callback fires (simulated), recording must not start.
+    listener._start_hold_recording()
+    on_start.assert_not_called()
+    assert listener._mode == "idle"
+
+
+def test_mode_cycle_consumed_flag_resets_on_release():
+    timers: list[_FakeTimer] = []
+
+    def _make_timer(*args, **kwargs):
+        timer = _FakeTimer(*args, **kwargs)
+        timers.append(timer)
+        return timer
+
+    on_start = unittest.mock.MagicMock()
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=on_start,
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+        mode_cycle_keys=["alt", "char:="],
+        on_mode_cycle=unittest.mock.MagicMock(),
+    )
+    _unpause(listener)
+
+    with unittest.mock.patch("whisperkey_mac.keyboard_listener.threading.Timer", side_effect=_make_timer):
+        listener._on_press(keyboard.Key.alt_r)
+        listener._on_press(keyboard.KeyCode.from_char("≠", vk=0x18))
+        assert listener._hold_consumed_until_release is True
+
+        listener._on_release(keyboard.KeyCode.from_char("=", vk=0x18))
+        listener._on_release(keyboard.Key.alt_r)
+
+    assert listener._hold_consumed_until_release is False
+    on_start.assert_not_called()
+
+    # A fresh alt_r press must be able to start hold recording again.
+    with unittest.mock.patch("whisperkey_mac.keyboard_listener.threading.Timer", side_effect=_make_timer):
+        listener._on_press(keyboard.Key.alt_r)
+
+    assert len(timers) == 2
+    assert timers[1].started is True
+    assert timers[1].cancelled is False
 
 
 def test_stop_pauses_without_destroying_underlying_listener_thread():

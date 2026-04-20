@@ -7,7 +7,7 @@ import time
 from typing import Callable
 
 from whisperkey_mac.audio import AudioRecorder
-from whisperkey_mac.config import AppConfig
+from whisperkey_mac.config import AppConfig, save_config
 from whisperkey_mac.diagnostics import diag
 from whisperkey_mac.i18n import t
 from whisperkey_mac.keyboard_listener import HotkeyListener
@@ -47,6 +47,8 @@ class ServiceController:
         self._record_target_bundle_id: str | None = None
         self._overlay = None
         self._service_running = False
+        self._settings_hotkey_suspend_count = 0
+        self._settings_hotkey_suspend_lock = threading.Lock()
         self._status_callbacks: list[Callable[[], None]] = []
 
         cfg = self._config
@@ -56,6 +58,8 @@ class ServiceController:
             on_record_start=self._start_recording,
             on_record_stop_transcribe=self._stop_and_transcribe,
             on_enter=self._on_enter,
+            mode_cycle_keys=cfg.mode_cycle_keys,
+            on_mode_cycle=self.cycle_online_prompt_mode,
         )
 
     @property
@@ -114,7 +118,7 @@ class ServiceController:
 
         # Update key bindings in-place — never stop/recreate the pynput listener
         cfg = self._config
-        self._hotkey.update_keys(cfg.hold_key, cfg.handsfree_keys)
+        self._hotkey.update_keys(cfg.hold_key, cfg.handsfree_keys, cfg.mode_cycle_keys)
         self._notify_status_changed()
         diag(
             "service_apply_config_end",
@@ -140,8 +144,13 @@ class ServiceController:
         diag("service_start_begin")
         self.ensure_overlay()
         self._overlay.set_audio_level_provider(lambda: self._recorder.audio_level)
-        diag("service_hotkey_start")
-        self._hotkey.start()
+        with self._settings_hotkey_suspend_lock:
+            hotkeys_suspended = self._settings_hotkey_suspend_count > 0
+        if hotkeys_suspended:
+            diag("service_hotkey_start_deferred", reason="settings_capture")
+        else:
+            diag("service_hotkey_start")
+            self._hotkey.start()
         self._service_running = True
         self._notify_status_changed()
         from whisperkey_mac.overlay import dispatch_to_main
@@ -166,6 +175,41 @@ class ServiceController:
         self._notify_status_changed()
         diag("service_stop_end")
 
+    def suspend_hotkeys_for_settings(self) -> None:
+        with self._settings_hotkey_suspend_lock:
+            self._settings_hotkey_suspend_count += 1
+            count = self._settings_hotkey_suspend_count
+            should_stop = count == 1 and self._service_running
+        if should_stop:
+            diag("service_hotkey_suspend_for_settings", count=count)
+            self._hotkey.stop()
+        else:
+            diag(
+                "service_hotkey_suspend_for_settings_ignored",
+                count=count,
+                running=self._service_running,
+            )
+
+    def resume_hotkeys_after_settings(self) -> None:
+        with self._settings_hotkey_suspend_lock:
+            if self._settings_hotkey_suspend_count <= 0:
+                self._settings_hotkey_suspend_count = 0
+                count = 0
+                should_start = False
+            else:
+                self._settings_hotkey_suspend_count -= 1
+                count = self._settings_hotkey_suspend_count
+                should_start = count == 0 and self._service_running
+        if should_start:
+            diag("service_hotkey_resume_after_settings")
+            self._hotkey.start()
+        else:
+            diag(
+                "service_hotkey_resume_after_settings_ignored",
+                count=count,
+                running=self._service_running,
+            )
+
     def shutdown(self) -> None:
         diag("service_shutdown_start")
         self.stop_service()
@@ -185,6 +229,40 @@ class ServiceController:
 
     def _on_enter(self) -> None:
         self._output.send_enter()
+
+    def cycle_online_prompt_mode(self) -> str:
+        targets = [
+            mode for mode in getattr(self._config, "mode_cycle_targets", [])
+            if mode in {"disabled", "asr_correction", "voice_cleanup"}
+        ]
+        if not targets:
+            targets = ["asr_correction", "voice_cleanup"]
+
+        current_mode = getattr(self._config, "online_prompt_mode", "disabled")
+        if current_mode in targets:
+            next_mode = targets[(targets.index(current_mode) + 1) % len(targets)]
+        else:
+            next_mode = targets[0]
+
+        self._config.online_prompt_mode = next_mode
+        self._config.online_correct_enabled = next_mode != "disabled"
+        save_config(self._config)
+        self.notify_mode_switch(next_mode)
+        self._notify_status_changed()
+        return next_mode
+
+    def notify_mode_switch(self, mode: str) -> None:
+        diag("online_prompt_mode_switched", mode=mode)
+        if not self._service_running or self._overlay is None or self.is_busy:
+            return
+
+        from whisperkey_mac.overlay import dispatch_to_main
+
+        dispatch_to_main(
+            self._overlay.show_mode_switch,
+            mode,
+            getattr(self._config, "ui_language", "en"),
+        )
 
     def _start_recording(self) -> None:
         if not hasattr(self, "_overlay") or self._overlay is None:

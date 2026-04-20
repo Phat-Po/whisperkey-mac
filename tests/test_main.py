@@ -19,6 +19,7 @@ class DummyService:
     _hide_overlay_after_cancel = ServiceController._hide_overlay_after_cancel
     _frontmost_bundle_id = ServiceController._frontmost_bundle_id
     _should_attempt_direct_paste = ServiceController._should_attempt_direct_paste
+    notify_mode_switch = ServiceController.notify_mode_switch
 
 
 def _build_service() -> DummyService:
@@ -227,6 +228,78 @@ def test_apply_config_reuses_recorder_when_audio_config_is_unchanged():
     assert service._recorder._config is new_config
 
 
+def test_apply_config_updates_mode_cycle_hotkey_binding():
+    service = ServiceController.__new__(ServiceController)
+    old_config = AppConfig()
+    new_config = AppConfig(mode_cycle_keys=["cmd", "char:m"])
+
+    service._config = old_config
+    service._recorder = unittest.mock.MagicMock()
+    service._transcriber = unittest.mock.MagicMock()
+    service._output = unittest.mock.MagicMock()
+    service._record_target_bundle_id = None
+    service._service_running = True
+    service._hotkey = unittest.mock.MagicMock()
+    service._status_callbacks = []
+
+    service.apply_config(new_config)
+
+    service._hotkey.update_keys.assert_called_once_with(
+        new_config.hold_key,
+        new_config.handsfree_keys,
+        ["cmd", "char:m"],
+    )
+
+
+def test_cycle_online_prompt_mode_persists_next_target():
+    service = ServiceController.__new__(ServiceController)
+    service._config = AppConfig(
+        online_prompt_mode="asr_correction",
+        mode_cycle_targets=["asr_correction", "voice_cleanup"],
+    )
+    service._status_callbacks = [unittest.mock.MagicMock()]
+    service.notify_mode_switch = unittest.mock.MagicMock()
+
+    with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
+        next_mode = service.cycle_online_prompt_mode()
+
+    assert next_mode == "voice_cleanup"
+    assert service._config.online_prompt_mode == "voice_cleanup"
+    assert service._config.online_correct_enabled is True
+    mock_save.assert_called_once_with(service._config)
+    service.notify_mode_switch.assert_called_once_with("voice_cleanup")
+    service._status_callbacks[0].assert_called_once_with()
+
+
+def test_notify_mode_switch_dispatches_overlay_feedback_when_idle():
+    service = _build_service()
+    service._service_running = True
+    service._recorder = unittest.mock.MagicMock()
+    service._recorder.is_recording = False
+
+    with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main") as mock_dispatch:
+        service.notify_mode_switch("voice_cleanup")
+
+    mock_dispatch.assert_called_once_with(
+        service._overlay.show_mode_switch,
+        "voice_cleanup",
+        "zh",
+    )
+
+
+def test_notify_mode_switch_skips_overlay_feedback_while_busy():
+    service = _build_service()
+    service._service_running = True
+    service._processing_busy = True
+    service._recorder = unittest.mock.MagicMock()
+    service._recorder.is_recording = False
+
+    with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main") as mock_dispatch:
+        service.notify_mode_switch("asr_correction")
+
+    mock_dispatch.assert_not_called()
+
+
 def test_should_attempt_direct_paste_allowlists_codex_without_noise():
     service = _build_service()
     service._frontmost_bundle_id = unittest.mock.MagicMock(return_value="com.openai.codex")
@@ -338,6 +411,39 @@ def test_app_open_settings_defers_while_service_busy():
     assert app._settings_retry_pending is True
 
 
+def test_app_open_settings_passes_hotkey_capture_callback():
+    app = App.__new__(App)
+    app._service = unittest.mock.MagicMock()
+    app._service.is_busy = False
+    app._service.config = AppConfig()
+    app._launch_agent = unittest.mock.MagicMock()
+    app._launch_agent.is_enabled.return_value = False
+    app._settings_retry_pending = False
+    app._settings_window = None
+    settings_window = unittest.mock.MagicMock()
+
+    with unittest.mock.patch(
+        "whisperkey_mac.settings_window.build_settings_window_controller",
+        return_value=settings_window,
+    ) as mock_build:
+        app.open_settings()
+
+    callback = mock_build.call_args.kwargs["on_hotkey_capture_active"]
+    assert callback == app._set_settings_hotkey_capture_active
+    settings_window.show.assert_called_once_with()
+
+
+def test_app_settings_hotkey_capture_callback_suspends_and_resumes_service():
+    app = App.__new__(App)
+    app._service = unittest.mock.MagicMock()
+
+    app._set_settings_hotkey_capture_active(True)
+    app._set_settings_hotkey_capture_active(False)
+
+    app._service.suspend_hotkeys_for_settings.assert_called_once_with()
+    app._service.resume_hotkeys_after_settings.assert_called_once_with()
+
+
 def test_app_save_settings_defers_while_service_busy():
     app = App.__new__(App)
     app._service = unittest.mock.MagicMock()
@@ -357,3 +463,35 @@ def test_app_save_settings_defers_while_service_busy():
     mock_save_config.assert_not_called()
     assert app._pending_settings_save == (config, "secret", True)
     assert app._settings_save_retry_pending is True
+
+
+def test_service_settings_hotkey_suspend_resume_is_nested():
+    service = ServiceController.__new__(ServiceController)
+    service._settings_hotkey_suspend_count = 0
+    service._settings_hotkey_suspend_lock = threading.Lock()
+    service._service_running = True
+    service._hotkey = unittest.mock.MagicMock()
+
+    service.suspend_hotkeys_for_settings()
+    service.suspend_hotkeys_for_settings()
+    service.resume_hotkeys_after_settings()
+    service.resume_hotkeys_after_settings()
+
+    service._hotkey.stop.assert_called_once_with()
+    service._hotkey.start.assert_called_once_with()
+    assert service._service_running is True
+
+
+def test_service_settings_hotkey_resume_does_not_start_stopped_service():
+    service = ServiceController.__new__(ServiceController)
+    service._settings_hotkey_suspend_count = 0
+    service._settings_hotkey_suspend_lock = threading.Lock()
+    service._service_running = True
+    service._hotkey = unittest.mock.MagicMock()
+
+    service.suspend_hotkeys_for_settings()
+    service._service_running = False
+    service.resume_hotkeys_after_settings()
+
+    service._hotkey.stop.assert_called_once_with()
+    service._hotkey.start.assert_not_called()
