@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import re
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules, copy_metadata
@@ -9,6 +10,13 @@ block_cipher = None
 project_root = Path(SPECPATH).parents[1]
 entrypoint = project_root / "whisperkey_mac" / "app_entry.py"
 icon_path = project_root / "build" / "assets" / "WhisperKey.icns"
+pyproject_text = (project_root / "pyproject.toml").read_text(encoding="utf-8")
+project_version_match = re.search(r'^version\s*=\s*"([^"]+)"', pyproject_text, re.MULTILINE)
+
+if project_version_match is None:
+    raise RuntimeError("Unable to read project version from pyproject.toml")
+
+project_version = project_version_match.group(1)
 
 datas = []
 binaries = []
@@ -118,8 +126,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "WhisperKey",
         "CFBundleDisplayName": "WhisperKey",
-        "CFBundleShortVersionString": "0.2.1",
-        "CFBundleVersion": "0.2.1",
+        "CFBundleShortVersionString": project_version,
+        "CFBundleVersion": project_version,
         "LSUIElement": True,
         "LSMinimumSystemVersion": "12.0",
         "NSAppleEventsUsageDescription": "WhisperKey uses Apple Events to paste transcribed text into the active app when direct accessibility insertion is unavailable.",
