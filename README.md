@@ -84,7 +84,7 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 
 ### Option A — Download the App (recommended)
 
-Grab `WhisperKey-macOS-arm64-v0.2.2.zip` from the [Releases page](https://github.com/Phat-Po/whisperkey-mac/releases), unzip, and move `WhisperKey.app` to `/Applications`.
+Grab `WhisperKey-macOS-arm64-v3.0.1.zip` from the [Releases page](https://github.com/Phat-Po/whisperkey-mac/releases), unzip, and move `WhisperKey.app` to `/Applications`.
 
 On first launch, grant the two macOS permissions:
 - **Input Monitoring** — lets WhisperKey detect the hotkey
@@ -314,6 +314,7 @@ Automatically checks: process status · Accessibility · Input Monitoring · aud
 | Symptom | Fix |
 |---|---|
 | No response to hotkeys | Check **Input Monitoring** permission |
+| Hands-free hotkey does not respond | Make sure only `/Applications/WhisperKey.app` is running, then check Input Monitoring + Accessibility |
 | Transcription not pasting | Check **Accessibility** permission |
 | Post-processing not applying | Re-run `whisperkey setup` or set `OPENAI_API_KEY`; check Settings → Voice → Processing Mode |
 | `inject_path=applescript` in logs | Expected for Electron/web chat apps; it's the compatibility paste path |
@@ -420,6 +421,8 @@ whisperkey_mac/
 ```
 
 Packaging: `packaging/macos/build_app.sh` (PyInstaller + codesign) → `packaging/macos/package_release.sh` (zip for Releases).
+
+Hotkey diagnostics: `scripts/debug_raw_cgevent_tap.py` logs raw macOS key events and helps verify whether a modifier+character combo reaches CGEventTap before pynput translates it.
 
 </details>
 

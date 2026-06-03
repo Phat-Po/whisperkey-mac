@@ -42,3 +42,13 @@ def test_quit_app_only_terminates_nsapp():
         controller.quitApp_(None)
 
     nsapp.terminate_.assert_called_once_with(None)
+
+
+def test_refresh_from_service_dispatches_to_main_thread():
+    controller = MenuBarController.alloc().init()
+    controller.refresh = unittest.mock.MagicMock()
+
+    with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main") as mock_dispatch:
+        controller._refresh_from_service()
+
+    mock_dispatch.assert_called_once_with(controller.refresh)

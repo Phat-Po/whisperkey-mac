@@ -19,7 +19,9 @@ class DummyService:
     _hide_overlay_after_cancel = ServiceController._hide_overlay_after_cancel
     _frontmost_bundle_id = ServiceController._frontmost_bundle_id
     _should_attempt_direct_paste = ServiceController._should_attempt_direct_paste
+    cycle_online_prompt_mode = ServiceController.cycle_online_prompt_mode
     notify_mode_switch = ServiceController.notify_mode_switch
+    notify_mode_switch_busy = ServiceController.notify_mode_switch_busy
 
 
 def _build_service() -> DummyService:
@@ -257,8 +259,13 @@ def test_cycle_online_prompt_mode_persists_next_target():
         online_prompt_mode="asr_correction",
         mode_cycle_targets=["asr_correction", "voice_cleanup"],
     )
+    service._recorder = unittest.mock.MagicMock()
+    service._recorder.is_recording = False
+    service._activity_lock = threading.Lock()
+    service._processing_busy = False
     service._status_callbacks = [unittest.mock.MagicMock()]
     service.notify_mode_switch = unittest.mock.MagicMock()
+    service.notify_mode_switch_busy = unittest.mock.MagicMock()
 
     with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
         next_mode = service.cycle_online_prompt_mode()
@@ -268,7 +275,58 @@ def test_cycle_online_prompt_mode_persists_next_target():
     assert service._config.online_correct_enabled is True
     mock_save.assert_called_once_with(service._config)
     service.notify_mode_switch.assert_called_once_with("voice_cleanup")
+    service.notify_mode_switch_busy.assert_not_called()
     service._status_callbacks[0].assert_called_once_with()
+
+
+def test_cycle_online_prompt_mode_is_ignored_while_recording():
+    service = ServiceController.__new__(ServiceController)
+    service._config = AppConfig(
+        online_prompt_mode="asr_correction",
+        mode_cycle_targets=["asr_correction", "voice_cleanup"],
+    )
+    service._recorder = unittest.mock.MagicMock()
+    service._recorder.is_recording = True
+    service._activity_lock = threading.Lock()
+    service._processing_busy = False
+    service._status_callbacks = [unittest.mock.MagicMock()]
+    service.notify_mode_switch = unittest.mock.MagicMock()
+    service.notify_mode_switch_busy = unittest.mock.MagicMock()
+
+    with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
+        next_mode = service.cycle_online_prompt_mode()
+
+    assert next_mode == "asr_correction"
+    assert service._config.online_prompt_mode == "asr_correction"
+    mock_save.assert_not_called()
+    service.notify_mode_switch.assert_not_called()
+    service.notify_mode_switch_busy.assert_called_once_with()
+    service._status_callbacks[0].assert_not_called()
+
+
+def test_cycle_online_prompt_mode_is_ignored_while_processing():
+    service = ServiceController.__new__(ServiceController)
+    service._config = AppConfig(
+        online_prompt_mode="voice_cleanup",
+        mode_cycle_targets=["asr_correction", "voice_cleanup"],
+    )
+    service._recorder = unittest.mock.MagicMock()
+    service._recorder.is_recording = False
+    service._activity_lock = threading.Lock()
+    service._processing_busy = True
+    service._status_callbacks = [unittest.mock.MagicMock()]
+    service.notify_mode_switch = unittest.mock.MagicMock()
+    service.notify_mode_switch_busy = unittest.mock.MagicMock()
+
+    with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
+        next_mode = service.cycle_online_prompt_mode()
+
+    assert next_mode == "voice_cleanup"
+    assert service._config.online_prompt_mode == "voice_cleanup"
+    mock_save.assert_not_called()
+    service.notify_mode_switch.assert_not_called()
+    service.notify_mode_switch_busy.assert_called_once_with()
+    service._status_callbacks[0].assert_not_called()
 
 
 def test_notify_mode_switch_dispatches_overlay_feedback_when_idle():
@@ -298,6 +356,19 @@ def test_notify_mode_switch_skips_overlay_feedback_while_busy():
         service.notify_mode_switch("asr_correction")
 
     mock_dispatch.assert_not_called()
+
+
+def test_notify_mode_switch_busy_dispatches_overlay_hint():
+    service = _build_service()
+    service._service_running = True
+
+    with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main") as mock_dispatch:
+        service.notify_mode_switch_busy()
+
+    mock_dispatch.assert_called_once_with(
+        service._overlay.show_busy_mode_switch_hint,
+        "zh",
+    )
 
 
 def test_should_attempt_direct_paste_allowlists_codex_without_noise():
@@ -477,7 +548,7 @@ def test_service_settings_hotkey_suspend_resume_is_nested():
     service.resume_hotkeys_after_settings()
     service.resume_hotkeys_after_settings()
 
-    service._hotkey.stop.assert_called_once_with()
+    service._hotkey.full_stop.assert_called_once_with()
     service._hotkey.start.assert_called_once_with()
     assert service._service_running is True
 
@@ -493,5 +564,5 @@ def test_service_settings_hotkey_resume_does_not_start_stopped_service():
     service._service_running = False
     service.resume_hotkeys_after_settings()
 
-    service._hotkey.stop.assert_called_once_with()
+    service._hotkey.full_stop.assert_called_once_with()
     service._hotkey.start.assert_not_called()

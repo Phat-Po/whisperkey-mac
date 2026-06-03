@@ -94,7 +94,7 @@ class MenuBarController(NSObject):
         self._toggle_service_item = None
         self._mode = getattr(self._service.config, "online_prompt_mode", "disabled")
         self._build_menu()
-        self._service.register_status_callback(self.refresh)
+        self._service.register_status_callback(self._refresh_from_service)
         self.refresh()
         return self
 
@@ -144,6 +144,11 @@ class MenuBarController(NSObject):
         self._sync_status_button()
         self._status_line_item.setTitle_(status_line_title(self._service.status_label(), self._mode))
         self._toggle_service_item.setTitle_(service_menu_title_for_state(is_running))
+
+    def _refresh_from_service(self) -> None:
+        from whisperkey_mac.overlay import dispatch_to_main
+
+        dispatch_to_main(self.refresh)
 
     def set_mode_indicator(self, mode: str) -> None:
         self._mode = mode

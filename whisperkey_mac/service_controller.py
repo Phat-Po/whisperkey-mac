@@ -120,12 +120,37 @@ class ServiceController:
         cfg = self._config
         self._hotkey.update_keys(cfg.hold_key, cfg.handsfree_keys, cfg.mode_cycle_keys)
         self._notify_status_changed()
+        if model_changed and self._service_running:
+            self.warm_up_model_async()
         diag(
             "service_apply_config_end",
             running=self._service_running,
             model_changed=model_changed,
             recorder_changed=recorder_changed,
         )
+
+    def warm_up_model_async(self) -> None:
+        """Preload the transcription model on a background thread.
+
+        The first WhisperModel construction triggers a dlopen of the ctranslate2
+        native libraries, and Python holds the GIL for the duration of that
+        dlopen. If that happens on the record->transcribe hot path (and the OS
+        stalls on first-time code-signature validation), the GIL is never
+        released and the AppKit main thread freezes -- menu bar included.
+        Loading once, early, at startup keeps that cost off the hot path.
+        """
+        def _worker() -> None:
+            diag("model_warmup_start")
+            try:
+                self._transcriber.preload()
+                diag("model_warmup_end")
+            except Exception as exc:
+                diag("model_warmup_error", error_type=type(exc).__name__)
+        threading.Thread(
+            target=_worker,
+            name="WhisperKeyModelWarmup",
+            daemon=True,
+        ).start()
 
     def ensure_overlay(self) -> None:
         if self._overlay is not None:
@@ -155,6 +180,7 @@ class ServiceController:
         self._notify_status_changed()
         from whisperkey_mac.overlay import dispatch_to_main
         dispatch_to_main(self._overlay.show_idle)
+        self.warm_up_model_async()
         diag("service_start_end")
 
     def stop_service(self) -> None:
@@ -179,10 +205,12 @@ class ServiceController:
         with self._settings_hotkey_suspend_lock:
             self._settings_hotkey_suspend_count += 1
             count = self._settings_hotkey_suspend_count
-            should_stop = count == 1 and self._service_running
+            should_stop = count == 1
         if should_stop:
             diag("service_hotkey_suspend_for_settings", count=count)
-            self._hotkey.stop()
+            # Fully tear down the global tap (not just pause): pynput crashes
+            # the process if its tap sees caps_lock during settings capture.
+            self._hotkey.full_stop()
         else:
             diag(
                 "service_hotkey_suspend_for_settings_ignored",
@@ -231,6 +259,19 @@ class ServiceController:
         self._output.send_enter()
 
     def cycle_online_prompt_mode(self) -> str:
+        current_mode = getattr(self._config, "online_prompt_mode", "disabled")
+        with self._activity_lock:
+            processing_busy = self._processing_busy
+        if processing_busy or self._recorder.is_recording:
+            diag(
+                "online_prompt_mode_switch_ignored",
+                mode=current_mode,
+                processing_busy=processing_busy,
+                recording=self._recorder.is_recording,
+            )
+            self.notify_mode_switch_busy()
+            return current_mode
+
         targets = [
             mode for mode in getattr(self._config, "mode_cycle_targets", [])
             if mode in {"disabled", "asr_correction", "voice_cleanup"}
@@ -238,7 +279,6 @@ class ServiceController:
         if not targets:
             targets = ["asr_correction", "voice_cleanup"]
 
-        current_mode = getattr(self._config, "online_prompt_mode", "disabled")
         if current_mode in targets:
             next_mode = targets[(targets.index(current_mode) + 1) % len(targets)]
         else:
@@ -250,6 +290,18 @@ class ServiceController:
         self.notify_mode_switch(next_mode)
         self._notify_status_changed()
         return next_mode
+
+    def notify_mode_switch_busy(self) -> None:
+        diag("online_prompt_mode_switch_busy")
+        if not self._service_running or self._overlay is None:
+            return
+
+        from whisperkey_mac.overlay import dispatch_to_main
+
+        dispatch_to_main(
+            self._overlay.show_busy_mode_switch_hint,
+            getattr(self._config, "ui_language", "en"),
+        )
 
     def notify_mode_switch(self, mode: str) -> None:
         diag("online_prompt_mode_switched", mode=mode)

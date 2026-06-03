@@ -33,6 +33,9 @@ if [[ ! -x "${APP_PATH}/Contents/MacOS/WhisperKey" ]]; then
   exit 1
 fi
 
+echo "[whisperkey] Stripping extended attributes..."
+xattr -cr "${APP_PATH}"
+
 echo "[whisperkey] Applying ad-hoc signature..."
 codesign --force --deep --sign - --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
 

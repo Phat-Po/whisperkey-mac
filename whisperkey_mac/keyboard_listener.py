@@ -5,10 +5,37 @@ import time
 from collections.abc import Callable
 from pynput import keyboard
 try:
-    from Quartz import kCGEventKeyDown, kCGEventKeyUp
+    from Quartz import (
+        kCGEventKeyDown,
+        kCGEventKeyUp,
+        kCGEventFlagsChanged,
+        CGEventTapCreate,
+        CGEventTapEnable,
+        CFMachPortCreateRunLoopSource,
+        CFRunLoopGetCurrent,
+        CFRunLoopAddSource,
+        CFRunLoopRunInMode,
+        kCGSessionEventTap,
+        kCGHeadInsertEventTap,
+        kCGEventTapOptionListenOnly,
+        kCGEventTapOptionDefault,
+        kCFRunLoopDefaultMode,
+        kCFRunLoopRunTimedOut,
+        CGEventGetIntegerValueField,
+        CGEventGetFlags,
+        kCGKeyboardEventKeycode,
+    )
+    _HAS_QUARTZ = True
 except Exception:  # pragma: no cover - non-macOS test/import fallback
     kCGEventKeyDown = 10
     kCGEventKeyUp = 11
+    kCGEventFlagsChanged = 12
+    _HAS_QUARTZ = False
+
+try:
+    from ApplicationServices import AXIsProcessTrusted
+except Exception:  # pragma: no cover - non-macOS
+    AXIsProcessTrusted = None
 
 from whisperkey_mac.diagnostics import diag
 
@@ -84,6 +111,43 @@ _VK_TO_BASE_CHAR: dict[int, str] = {
     0x32: "`",
     0x31: " ",
 }
+
+# Reverse map: base character → virtual keycode (for raw combo detection)
+_CHAR_TO_VK: dict[str, int] = {ch: vk for vk, ch in _VK_TO_BASE_CHAR.items()}
+
+# CGEvent modifier flag masks (from IOLLEvent.h / CGEventTypes.h)
+_CG_FLAG_MASKS: dict[str, int] = {
+    "cmd":   0x100000,  # kCGEventFlagMaskCommand
+    "cmd_l": 0x100000,
+    "cmd_r": 0x100000,
+    "alt":   0x080000,  # kCGEventFlagMaskAlternate
+    "alt_l": 0x080000,
+    "alt_r": 0x080000,
+    "ctrl":  0x040000,  # kCGEventFlagMaskControl
+    "ctrl_l": 0x040000,
+    "ctrl_r": 0x040000,
+    "shift": 0x020000,  # kCGEventFlagMaskShift
+    "shift_l": 0x020000,
+    "shift_r": 0x020000,
+}
+
+
+def _parse_combo_raw(combo_names: list[str]) -> tuple[int, int | None]:
+    """Parse combo config names into (required_modifier_flags, char_vk).
+
+    Returns (flags_mask, vk) where *flags_mask* is the OR of all modifier
+    flag bits the combo requires, and *vk* is the virtual keycode of the
+    character key (or None if the combo has no char: component).
+    """
+    flags = 0
+    char_vk: int | None = None
+    for name in combo_names:
+        if name in _CG_FLAG_MASKS:
+            flags |= _CG_FLAG_MASKS[name]
+        elif name.startswith("char:") and len(name) > 5:
+            char = name[5:]
+            char_vk = _CHAR_TO_VK.get(char)
+    return flags, char_vk
 
 
 def key_name_to_pynput(name: str) -> keyboard.Key | keyboard.KeyCode | None:
@@ -255,6 +319,9 @@ class HotkeyListener:
         self._suppressed_mode_cycle_keyups: set[str] = set()
 
         self._listener: keyboard.Listener | None = None
+        self._raw_tap: object | None = None  # CGEventTap for direct combo detection
+        self._raw_tap_starting: bool = False
+        self._raw_combo_held: bool = False
         self._paused: bool = True  # start paused; activated by start()
         diag(
             "hotkey_listener_config",
@@ -312,23 +379,220 @@ class HotkeyListener:
         )
 
     def start(self) -> None:
-        """Unpause the listener. Creates the CGEventTap once on first call."""
+        """Unpause the listener. Creates the CGEventTap once on first call.
+
+        On macOS 26+ active-mode taps (``kCGEventTapOptionDefault``) require
+        confirmed Accessibility trust. When trust is available, a separate raw
+        CGEventTap handles modifier+character combos before pynput's key
+        translation can drop them. Without trust it falls back to listen-only
+        mode as a best-effort diagnostic path.
+        """
         created = False
+        intercept = None
         if self._listener is None:
+            trusted = AXIsProcessTrusted() if AXIsProcessTrusted is not None else True
+            # Use active intercept only when accessibility trust is confirmed;
+            # otherwise fall back to listen-only so the tap is created at all.
+            intercept = self._intercept_darwin_event if trusted else None
             self._listener = keyboard.Listener(
                 on_press=self._on_press,
                 on_release=self._on_release,
-                darwin_intercept=self._intercept_darwin_event,
+                darwin_intercept=intercept,
             )
             self._listener.start()
             created = True
+            if _HAS_QUARTZ and self._handsfree_names:
+                self._start_raw_combo_tap(active=bool(trusted))
+        else:
+            intercept = getattr(self._listener, "_darwin_intercept", None)
         self._paused = False
-        diag("hotkey_listener_start", created=created, paused=self._paused)
+        trusted = AXIsProcessTrusted() if AXIsProcessTrusted is not None else None
+        diag("hotkey_listener_start", created=created, paused=self._paused, ax_trusted=trusted, has_intercept=intercept is not None, has_raw_tap=self._raw_tap is not None)
 
     def stop(self) -> None:
         """Pause the listener without destroying the CGEventTap."""
         self._paused = True
         self.reset_state()
+
+    def full_stop(self) -> None:
+        """Fully stop and destroy the CGEventTap, then forget the listener.
+
+        Used while the settings window is capturing a new hotkey: pynput 1.8.1
+        crashes the whole process (SIGTRAP in keyboard/_darwin.py _handle_message)
+        when its global tap processes a caps_lock event during capture. Merely
+        pausing (stop()) leaves the tap alive and still feeding events to pynput,
+        so we must tear it down. A subsequent start() recreates it.
+        """
+        self._paused = True
+        listener = self._listener
+        self._listener = None
+        if listener is not None:
+            try:
+                listener.stop()
+            except Exception as exc:  # pragma: no cover - defensive teardown
+                diag("hotkey_listener_full_stop_error", error_type=exc.__class__.__name__)
+        # Also tear down the raw combo tap if present.
+        if self._raw_tap is not None:
+            try:
+                from Quartz import CGEventTapEnable
+                CGEventTapEnable(self._raw_tap, False)
+            except Exception:
+                pass
+            self._raw_tap = None
+        self._raw_tap_starting = False
+        self._raw_combo_held = False
+        self.reset_state()
+        diag("hotkey_listener_full_stop", had_listener=listener is not None)
+
+    # ── raw combo tap ─────────────────────────────────────────────────────
+
+    def _start_raw_combo_tap(self, *, active: bool) -> None:
+        """Create a CGEventTap that detects modifier+char combos.
+
+        This tap runs alongside pynput's listener and detects combos by
+        checking raw CGEvent modifier flags + virtual keycodes, bypassing
+        pynput's ``_event_to_key`` which fails for characters like ``\\``
+        when a modifier (e.g. cmd) is held.
+
+        When Accessibility trust is available the tap runs in active mode so
+        macOS delivers the same raw stream that pynput's translation layer may
+        drop, and so the combo's character key can be suppressed. Without trust
+        it falls back to listen-only mode as a best-effort diagnostic path.
+
+        The tap runs on its own daemon thread with its own CFRunLoop, since
+        the main thread's run loop is occupied by the AppKit event loop.
+        """
+        if self._raw_tap is not None or self._raw_tap_starting:
+            return
+        try:
+            mod_flags, char_vk = _parse_combo_raw(self._handsfree_names)
+        except Exception:
+            diag("raw_combo_tap_parse_failed")
+            return
+
+        if char_vk is None:
+            diag("raw_combo_tap_no_char_vk")
+            return
+
+        event_mask = (1 << kCGEventKeyDown) | (1 << kCGEventKeyUp) | (1 << kCGEventFlagsChanged)
+        tap_option = kCGEventTapOptionDefault if active else kCGEventTapOptionListenOnly
+        self._raw_tap_starting = True
+
+        def _tap_callback(_proxy, event_type, event, _refcon):
+            if self._paused:
+                return event
+            try:
+                if event_type == kCGEventKeyDown:
+                    vk = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
+                    flags = CGEventGetFlags(event)
+                    if vk == char_vk and (flags & mod_flags) == mod_flags:
+                        if not self._raw_combo_held:
+                            self._raw_combo_held = True
+                            diag("raw_combo_detected", vk=vk, flags=f"{flags:#x}")
+                            self._handle_raw_combo_press()
+                        if active:
+                            return None
+                elif event_type == kCGEventKeyUp:
+                    vk = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
+                    if vk == char_vk:
+                        was_held = self._raw_combo_held
+                        self._raw_combo_held = False
+                        if was_held:
+                            self._handle_raw_combo_release()
+                            if active:
+                                return None
+                elif event_type == kCGEventFlagsChanged:
+                    # Modifier released — if combo was active and modifier
+                    # is no longer held, mark combo released.
+                    flags = CGEventGetFlags(event)
+                    if self._raw_combo_held and (flags & mod_flags) != mod_flags:
+                        self._raw_combo_held = False
+                        self._handle_raw_combo_release()
+            except Exception as exc:
+                diag("raw_combo_tap_error", error_type=exc.__class__.__name__)
+            return event
+
+        def _tap_thread():
+            tap = CGEventTapCreate(
+                kCGSessionEventTap,
+                kCGHeadInsertEventTap,
+                tap_option,
+                event_mask,
+                _tap_callback,
+                None,
+            )
+            if tap is None:
+                self._raw_tap_starting = False
+                diag("raw_combo_tap_create_failed", active=active)
+                return
+
+            loop_source = CFMachPortCreateRunLoopSource(None, tap, 0)
+            loop = CFRunLoopGetCurrent()
+            CFRunLoopAddSource(loop, loop_source, kCFRunLoopDefaultMode)
+            CGEventTapEnable(tap, True)
+            self._raw_tap = tap
+            self._raw_tap_starting = False
+            diag("raw_combo_tap_started", active=active, mod_flags=f"{mod_flags:#x}", char_vk=char_vk)
+
+            # Run the loop — this blocks until the loop is stopped.
+            while self._raw_tap is not None:
+                result = CFRunLoopRunInMode(kCFRunLoopDefaultMode, 5.0, False)
+                try:
+                    if result != kCFRunLoopRunTimedOut:
+                        break
+                except AttributeError:
+                    break
+
+        t = threading.Thread(target=_tap_thread, name="RawComboTap", daemon=True)
+        t.start()
+
+    def _handle_raw_combo_press(self) -> None:
+        """Handle a combo press detected by the raw CGEventTap.
+
+        Mirrors the combo handling in _on_press but works independently of
+        pynput's key resolution.
+        """
+        should_start_handsfree = False
+        with self._lock:
+            combo_active = self._handsfree_combo_active
+            stop_pending = self._handsfree_stop_pending
+            if stop_pending:
+                diag("raw_combo_match", action="ignored_stop_pending", mode=self._mode)
+                return
+            if not combo_active:
+                self._handsfree_combo_active = True
+                mode = self._mode
+                if mode == "idle":
+                    if self._hold_timer:
+                        self._hold_timer.cancel()
+                        self._hold_timer = None
+                    self._mode = "handsfree"
+                    self._handsfree_stop_pending = False
+                    should_start_handsfree = True
+                elif mode == "handsfree":
+                    self._handsfree_stop_pending = True
+                diag(
+                    "raw_combo_match",
+                    action="start" if should_start_handsfree else "stop_pending",
+                    mode=mode,
+                    combo=_safe_names_label(self._handsfree_names),
+                )
+        if should_start_handsfree:
+            print("[whisperkey] Hands-free ON — recording...")
+            self._on_record_start()
+
+    def _handle_raw_combo_release(self) -> None:
+        """Finish a pending hands-free stop after the raw combo is released."""
+        should_stop_handsfree = False
+        with self._lock:
+            self._handsfree_combo_active = False
+            if self._handsfree_stop_pending and self._mode == "handsfree":
+                self._handsfree_stop_pending = False
+                self._mode = "idle"
+                should_stop_handsfree = True
+        if should_stop_handsfree:
+            diag("raw_combo_stop", combo=_safe_names_label(self._handsfree_names))
+            self._on_record_stop_transcribe()
 
     def reset_state(self) -> None:
         """Clear key state after an ignored/cancelled recording transition."""
@@ -350,6 +614,16 @@ class HotkeyListener:
         """Suppress only the character event that completes the hands-free combo."""
         if event_type not in (kCGEventKeyDown, kCGEventKeyUp):
             return event
+
+        # DIAGNOSTIC: log raw vk for every keydown/keyup to trace cmd+backslash
+        try:
+            from Quartz import CGEventGetIntegerValueField, kCGKeyboardEventKeycode, CGEventGetFlags
+            vk = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode)
+            flags = CGEventGetFlags(event)
+            phase = "down" if event_type == kCGEventKeyDown else "up"
+            diag("intercept_raw", phase=phase, vk=vk, flags=f"{flags:#x}")
+        except Exception:
+            pass
 
         key = self._key_from_darwin_event(event)
         if key is None:
@@ -495,7 +769,13 @@ class HotkeyListener:
 
     def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
         if self._paused or key is None:
-            if key is not None:
+            if key is None and not self._paused:
+                # DIAGNOSTIC (issue 1): pynput delivered a keydown it could not
+                # resolve to a KeyCode. If this fires when pressing the combo's
+                # character key with a modifier held, the combo can never
+                # complete because _on_press has no key to add to held_keys.
+                diag("hotkey_press_none")
+            elif key is not None:
                 diag("hotkey_press_ignored", key=_safe_key_label(key), reason="paused")
             return
 
@@ -515,6 +795,8 @@ class HotkeyListener:
         diag(
             "hotkey_press",
             key=_safe_key_label(key),
+            vk=getattr(key, "vk", None),
+            char=getattr(key, "char", None),
             mode=mode,
             hold_match=hold_match,
             combo_complete=combo_pressed,

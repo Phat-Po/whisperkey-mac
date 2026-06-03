@@ -24,6 +24,7 @@ from whisperkey_mac.overlay import (
     OverlayPanel,
     OverlayState,
     OverlayStateMachine,
+    busy_mode_switch_hint_label,
     dispatch_to_main,
     mode_switch_label_for_mode,
 )
@@ -393,6 +394,11 @@ def test_mode_switch_label_uses_short_localized_text():
     assert mode_switch_label_for_mode("disabled", "zh") == "关闭"
 
 
+def test_busy_mode_switch_hint_label_uses_short_localized_text():
+    assert busy_mode_switch_hint_label("en") == "WAIT"
+    assert busy_mode_switch_hint_label("zh") == "稍后"
+
+
 def test_show_mode_switch_overlays_label_without_expanding_orb():
     overlay = OverlayPanel.create(result_max_lines=3)
 
@@ -446,6 +452,41 @@ def test_mode_switch_does_not_interrupt_recording_state():
 
     assert machine._state == OverlayState.RECORDING
     renderer.show_mode_switch.assert_not_called()
+
+
+def test_busy_mode_switch_hint_does_not_interrupt_recording_state():
+    renderer = unittest.mock.MagicMock()
+    machine = OverlayStateMachine(
+        unittest.mock.MagicMock(),
+        unittest.mock.MagicMock(),
+        unittest.mock.MagicMock(),
+        renderer,
+    )
+
+    machine.show_idle()
+    machine.show_recording()
+    machine.show_busy_mode_switch_hint("WAIT")
+
+    assert machine._state == OverlayState.RECORDING
+    renderer.show_busy_mode_switch_hint.assert_called_once_with("WAIT")
+
+
+def test_busy_mode_switch_hint_does_not_interrupt_transcribing_state():
+    renderer = unittest.mock.MagicMock()
+    machine = OverlayStateMachine(
+        unittest.mock.MagicMock(),
+        unittest.mock.MagicMock(),
+        unittest.mock.MagicMock(),
+        renderer,
+    )
+
+    machine.show_idle()
+    machine.show_recording()
+    machine.show_transcribing()
+    machine.show_busy_mode_switch_hint("WAIT")
+
+    assert machine._state == OverlayState.TRANSCRIBING
+    renderer.show_busy_mode_switch_hint.assert_called_once_with("WAIT")
 
 
 # ---------------------------------------------------------------------------

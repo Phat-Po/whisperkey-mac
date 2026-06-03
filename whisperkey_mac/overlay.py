@@ -94,10 +94,20 @@ MODE_SWITCH_LABELS = {
     },
 }
 
+BUSY_MODE_SWITCH_HINT_LABELS = {
+    "en": "WAIT",
+    "zh": "稍后",
+}
+
 
 def mode_switch_label_for_mode(mode: str, ui_language: str = "en") -> str:
     language = "zh" if ui_language == "zh" else "en"
     return MODE_SWITCH_LABELS[language].get(mode, MODE_SWITCH_LABELS[language]["disabled"])
+
+
+def busy_mode_switch_hint_label(ui_language: str = "en") -> str:
+    language = "zh" if ui_language == "zh" else "en"
+    return BUSY_MODE_SWITCH_HINT_LABELS[language]
 
 
 # ---------------------------------------------------------------------------
@@ -360,6 +370,7 @@ class AuroraRenderer:
         self._phase_started_at: float = time.monotonic()
         self._elapsed: float = 0.0
         self._record_start_at: float = 0.0
+        self._hint_gen: int = 0
 
         screen = NSScreen.mainScreen()
         sf = screen.frame()
@@ -558,6 +569,17 @@ class AuroraRenderer:
 
         self._schedule_tick(gen)
 
+    def show_busy_mode_switch_hint(self, label: str, duration_s: float = 0.8) -> None:
+        self._hint_gen += 1
+        hint_gen = self._hint_gen
+        frame = self._content_view.frame()
+        self._mode_label.setStringValue_(label)
+        self._mode_label.setFrame_(NSMakeRect(0, 0, frame.size.width, frame.size.height))
+        self._mode_label.setHidden_(False)
+        self._mode_label.setAlphaValue_(0.0)
+        self._animate_view_alpha(self._mode_label, 1.0, 0.10)
+        callLater(duration_s, lambda: self._fade_busy_mode_switch_hint(hint_gen))
+
     def hide_to_idle(self, gen: int) -> None:
         self.show_idle(gen)
 
@@ -726,6 +748,19 @@ class AuroraRenderer:
             return
         self._animate_view_alpha(self._mode_label, 0.0, 0.15)
 
+    def _fade_busy_mode_switch_hint(self, hint_gen: int) -> None:
+        if hint_gen != self._hint_gen:
+            return
+        self._animate_view_alpha(self._mode_label, 0.0, 0.10)
+        callLater(0.10, lambda: self._hide_busy_mode_switch_hint(hint_gen))
+
+    def _hide_busy_mode_switch_hint(self, hint_gen: int) -> None:
+        if hint_gen != self._hint_gen:
+            return
+        if self._mode == OverlayState.MODE_SWITCH:
+            return
+        self._hide_mode_label()
+
     def _show_text(self) -> None:
         self._label.setHidden_(False)
         self._sublabel.setHidden_(False)
@@ -863,6 +898,14 @@ class OverlayStateMachine:
         if self._renderer is not None:
             self._renderer.show_mode_switch(gen, label)
         callLater(1.2, lambda: self._auto_dismiss_mode_switch(gen))
+
+    def show_busy_mode_switch_hint(self, label: str) -> None:
+        if self._state not in {OverlayState.RECORDING, OverlayState.TRANSCRIBING}:
+            return
+        if self._mode_label is not None:
+            self._mode_label.setStringValue_(label)
+        if self._renderer is not None:
+            self._renderer.show_busy_mode_switch_hint(label)
 
     def hide_after_paste(self, dismiss_duration_s: float = 0.2) -> None:
         if self._state == OverlayState.HIDDEN:
@@ -1098,6 +1141,11 @@ class OverlayPanel:
         label = mode_switch_label_for_mode(mode, ui_language)
         diag("overlay_show_mode_switch", mode=mode, label=label)
         self._state_machine.show_mode_switch(label)
+
+    def show_busy_mode_switch_hint(self, ui_language: str = "en") -> None:
+        label = busy_mode_switch_hint_label(ui_language)
+        diag("overlay_show_busy_mode_switch_hint", label=label)
+        self._state_machine.show_busy_mode_switch_hint(label)
 
     def hide_after_paste(self, dismiss_duration_s: float = 0.2) -> None:
         diag("overlay_hide_after_paste", dismiss_duration_s=dismiss_duration_s)

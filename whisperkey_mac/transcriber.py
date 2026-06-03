@@ -20,6 +20,15 @@ class Transcriber:
         self._model: WhisperModel | None = None
         self._lock = threading.Lock()
 
+    def preload(self) -> None:
+        """Eagerly load the model so the first transcription does not trigger a
+        GIL-holding native-library dlopen on the record->transcribe hot path.
+
+        Safe to call from a background thread and safe to call repeatedly:
+        _ensure_loaded() is lock-guarded and a no-op once the model is loaded.
+        """
+        self._ensure_loaded()
+
     def transcribe(self, audio_path: Path) -> str:
         diag("transcriber_transcribe_start")
         self._ensure_loaded()

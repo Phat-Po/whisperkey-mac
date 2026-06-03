@@ -80,7 +80,10 @@ def test_start_installs_darwin_intercept_without_global_suppression():
         on_enter=unittest.mock.MagicMock(),
     )
 
-    with unittest.mock.patch("whisperkey_mac.keyboard_listener.keyboard.Listener", side_effect=_make_listener):
+    with (
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.keyboard.Listener", side_effect=_make_listener),
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.AXIsProcessTrusted", return_value=True),
+    ):
         listener.start()
 
     assert len(created) == 1
@@ -90,6 +93,77 @@ def test_start_installs_darwin_intercept_without_global_suppression():
     assert created[0].kwargs["darwin_intercept"] == listener._intercept_darwin_event
     assert "suppress" not in created[0].kwargs
     assert listener._paused is False
+
+
+def test_start_uses_active_raw_combo_tap_when_trusted():
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+    )
+
+    with (
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.keyboard.Listener", return_value=_ConstructedListener()),
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.AXIsProcessTrusted", return_value=True),
+        unittest.mock.patch("whisperkey_mac.keyboard_listener._HAS_QUARTZ", True),
+        unittest.mock.patch.object(listener, "_start_raw_combo_tap") as mock_raw_tap,
+    ):
+        listener.start()
+
+    mock_raw_tap.assert_called_once_with(active=True)
+
+
+def test_start_uses_listen_only_raw_combo_tap_when_not_trusted():
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+    )
+
+    with (
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.keyboard.Listener", return_value=_ConstructedListener()),
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.AXIsProcessTrusted", return_value=False),
+        unittest.mock.patch("whisperkey_mac.keyboard_listener._HAS_QUARTZ", True),
+        unittest.mock.patch.object(listener, "_start_raw_combo_tap") as mock_raw_tap,
+    ):
+        listener.start()
+
+    mock_raw_tap.assert_called_once_with(active=False)
+
+
+def test_raw_combo_press_and_release_toggles_handsfree():
+    on_start = unittest.mock.MagicMock()
+    on_stop = unittest.mock.MagicMock()
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=on_start,
+        on_record_stop_transcribe=on_stop,
+        on_enter=unittest.mock.MagicMock(),
+    )
+    _unpause(listener)
+
+    listener._handle_raw_combo_press()
+
+    on_start.assert_called_once_with()
+    on_stop.assert_not_called()
+    assert listener._mode == "handsfree"
+
+    listener._handle_raw_combo_release()
+    on_stop.assert_not_called()
+
+    listener._handle_raw_combo_press()
+    on_stop.assert_not_called()
+    assert listener._handsfree_stop_pending is True
+
+    listener._handle_raw_combo_release()
+
+    on_stop.assert_called_once_with()
+    assert listener._mode == "idle"
 
 
 def test_intercept_suppresses_cmd_backslash_character_down_and_up():

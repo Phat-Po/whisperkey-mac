@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv
 dist/
 build/
 *.egg
@@ -22,5 +23,7 @@ config.json
 CONTEXT.md
 STATUS.md
 HANDOFF-*.md
+handoff-*.md
 *-prompt.md
+PROMPT-FOR-NEXT-AGENT.md
 .planning/

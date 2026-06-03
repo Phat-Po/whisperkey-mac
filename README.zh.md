@@ -84,7 +84,7 @@ WhisperKey 以 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在�
 
 ### 方式 A — 下载 App（推荐）
 
-到 [Releases 页面](https://github.com/Phat-Po/whisperkey-mac/releases) 下载 `WhisperKey-macOS-arm64-v0.2.2.zip`，解压后把 `WhisperKey.app` 拖到 `/应用程式`。
+到 [Releases 页面](https://github.com/Phat-Po/whisperkey-mac/releases) 下载 `WhisperKey-macOS-arm64-v3.0.1.zip`，解压后把 `WhisperKey.app` 拖到 `/应用程式`。
 
 首次启动时授权两个 macOS 权限：
 - **输入监控** — 让 WhisperKey 监听快捷键
@@ -314,6 +314,7 @@ whisperkey help
 | 症状 | 解决 |
 |---|---|
 | 快捷键无响应 | 检查**输入监控**权限 |
+| 免提快捷键无响应 | 确认只运行 `/Applications/WhisperKey.app`，再检查输入监控 + 辅助使用 |
 | 转录没粘贴 | 检查**辅助使用**权限 |
 | 后处理没生效 | 重跑 `whisperkey setup` 或设 `OPENAI_API_KEY`；确认 Settings → 语音 → Processing Mode |
 | 日志出现 `inject_path=applescript` | Electron/网页类应用的兼容路径，属预期 |
@@ -420,6 +421,8 @@ whisperkey_mac/
 ```
 
 打包：`packaging/macos/build_app.sh`（PyInstaller + codesign）→ `packaging/macos/package_release.sh`（打 zip 上传 Release）。
+
+快捷键诊断：`scripts/debug_raw_cgevent_tap.py` 会记录 macOS 原始按键事件，可用于确认 modifier+character 组合是否在 pynput 转译前到达 CGEventTap。
 
 </details>
 

@@ -12,8 +12,10 @@ from typing import TextIO
 
 
 FAULT_LOG_PATH = Path("/tmp/whisperkey-faulthandler.log")
+DIAG_LOG_PATH = Path("/tmp/whisperkey-diag.log")
 
 _fault_log_file: TextIO | None = None
+_diag_log_file: TextIO | None = None
 _periodic_thread: threading.Thread | None = None
 _periodic_stop = threading.Event()
 _state_lock = threading.Lock()
@@ -53,6 +55,16 @@ def stop_periodic_metrics() -> None:
     _periodic_stop.set()
 
 
+def _ensure_diag_log() -> TextIO | None:
+    global _diag_log_file
+    if _diag_log_file is None:
+        try:
+            _diag_log_file = DIAG_LOG_PATH.open("a", buffering=1)
+        except OSError:
+            pass
+    return _diag_log_file
+
+
 def diag(event: str, **fields: object) -> None:
     metrics = _collect_metrics()
     parts = [f"event={_clean(event)}"]
@@ -66,7 +78,14 @@ def diag(event: str, **fields: object) -> None:
     )
     for key, value in fields.items():
         parts.append(f"{_clean(str(key))}={_clean(str(value))}")
-    print("[wkdiag] " + " ".join(parts), flush=True)
+    line = "[wkdiag] " + " ".join(parts)
+    print(line, flush=True)
+    log_file = _ensure_diag_log()
+    if log_file is not None:
+        try:
+            log_file.write(line + "\n")
+        except OSError:
+            pass
 
 
 def _periodic_loop(interval_s: float, event: str) -> None:
