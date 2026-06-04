@@ -24,6 +24,13 @@ macOS voice-input app: hold a hotkey to record, transcribe locally with faster-w
 - `packaging/macos/build_app.sh`
 - `packaging/macos/package_release.sh`
 
+## Release And Announcement Routing
+- GitHub release target is `Phat-Po/whisperkey-mac`.
+- Do not use the Feishu chat named `肥泼's Feishu Assistant` for release announcements.
+- Release announcements go to `野生指挥部` and `AI学习交流群（日不落版）`.
+- `野生指挥部` uses the known WPD Feishu bot chat route: `oc_ffbb508c573771fd23c0b6e4ef2e78c8`.
+- `AI学习交流群（日不落版）` uses the external Feishu bot webhook stored in the WPD agent configuration as `FEISHU_AI_GROUP_WEBHOOK`; do not hardcode the webhook URL in this repo or in memory files.
+
 ## Risk Gates
 - Do not edit Keychain storage behavior, API key handling, or launch-at-login behavior casually.
 - Confirm before installing/uninstalling LaunchAgents, modifying macOS permissions flows, or changing packaging/signing/notarization outputs.

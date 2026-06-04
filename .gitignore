@@ -21,7 +21,6 @@ config.json
 
 # Internal development docs (not for public release)
 CONTEXT.md
-STATUS.md
 HANDOFF-*.md
 handoff-*.md
 *-prompt.md
