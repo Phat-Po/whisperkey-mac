@@ -11,6 +11,7 @@ try:
         kCGEventFlagsChanged,
         CGEventTapCreate,
         CGEventTapEnable,
+        CGEventTapIsEnabled,
         CFMachPortCreateRunLoopSource,
         CFRunLoopGetCurrent,
         CFRunLoopAddSource,
@@ -21,6 +22,8 @@ try:
         kCGEventTapOptionDefault,
         kCFRunLoopDefaultMode,
         kCFRunLoopRunTimedOut,
+        kCGEventTapDisabledByTimeout,
+        kCGEventTapDisabledByUserInput,
         CGEventGetIntegerValueField,
         CGEventGetFlags,
         kCGKeyboardEventKeycode,
@@ -30,6 +33,8 @@ except Exception:  # pragma: no cover - non-macOS test/import fallback
     kCGEventKeyDown = 10
     kCGEventKeyUp = 11
     kCGEventFlagsChanged = 12
+    kCGEventTapDisabledByTimeout = 0xFFFFFFFE
+    kCGEventTapDisabledByUserInput = 0xFFFFFFFF
     _HAS_QUARTZ = False
 
 try:
@@ -323,6 +328,13 @@ class HotkeyListener:
         self._raw_tap_starting: bool = False
         self._raw_combo_held: bool = False
         self._paused: bool = True  # start paused; activated by start()
+        # Watchdog: macOS disables event taps after a slow callback
+        # (kCGEventTapDisabledByTimeout), user input, or sleep/wake. Neither
+        # pynput nor our raw tap self-heal, so a background thread periodically
+        # re-enables any tap macOS has silently switched off.
+        self._watchdog_thread: threading.Thread | None = None
+        self._watchdog_stop = threading.Event()
+        self._watchdog_interval_s: float = 5.0
         diag(
             "hotkey_listener_config",
             hold_key=_safe_name_label(self._hold_name),
@@ -399,10 +411,12 @@ class HotkeyListener:
                 on_release=self._on_release,
                 darwin_intercept=intercept,
             )
+            self._capture_pynput_tap(self._listener)
             self._listener.start()
             created = True
             if _HAS_QUARTZ and self._handsfree_names:
                 self._start_raw_combo_tap(active=bool(trusted))
+            self._start_watchdog()
         else:
             intercept = getattr(self._listener, "_darwin_intercept", None)
         self._paused = False
@@ -424,6 +438,7 @@ class HotkeyListener:
         so we must tear it down. A subsequent start() recreates it.
         """
         self._paused = True
+        self._stop_watchdog()
         listener = self._listener
         self._listener = None
         if listener is not None:
@@ -443,6 +458,67 @@ class HotkeyListener:
         self._raw_combo_held = False
         self.reset_state()
         diag("hotkey_listener_full_stop", had_listener=listener is not None)
+
+    # ── tap watchdog ──────────────────────────────────────────────────────
+
+    def _capture_pynput_tap(self, listener: keyboard.Listener) -> None:
+        """Wrap the listener's _create_event_tap so we keep the tap handle.
+
+        pynput's darwin backend stores the CGEventTap only as a local variable
+        inside its run loop, so there is no public way to re-enable it after
+        macOS disables it. We wrap the bound factory method on this instance to
+        stash the returned tap on ``listener._wk_tap`` for the watchdog.
+        """
+        create = getattr(listener, "_create_event_tap", None)
+        if create is None:
+            return
+
+        def _capturing_create():
+            tap = create()
+            try:
+                listener._wk_tap = tap
+            except Exception:  # pragma: no cover - defensive
+                pass
+            return tap
+
+        try:
+            listener._create_event_tap = _capturing_create
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+    def _start_watchdog(self) -> None:
+        if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
+            return
+        if not _HAS_QUARTZ:
+            return
+        self._watchdog_stop.clear()
+        t = threading.Thread(target=self._watchdog_loop, name="TapWatchdog", daemon=True)
+        self._watchdog_thread = t
+        t.start()
+        diag("tap_watchdog_start", interval_s=f"{self._watchdog_interval_s:.1f}")
+
+    def _stop_watchdog(self) -> None:
+        self._watchdog_stop.set()
+        self._watchdog_thread = None
+
+    def _watchdog_loop(self) -> None:
+        while not self._watchdog_stop.wait(self._watchdog_interval_s):
+            try:
+                self._reenable_disabled_taps()
+            except Exception as exc:  # pragma: no cover - defensive
+                diag("tap_watchdog_error", error_type=exc.__class__.__name__)
+
+    def _reenable_disabled_taps(self) -> None:
+        """Re-enable any tap macOS has silently disabled (timeout/sleep/wake)."""
+        listener = self._listener
+        pynput_tap = getattr(listener, "_wk_tap", None) if listener is not None else None
+        if pynput_tap is not None and not CGEventTapIsEnabled(pynput_tap):
+            CGEventTapEnable(pynput_tap, True)
+            diag("tap_watchdog_reenabled", tap="pynput")
+        raw_tap = self._raw_tap
+        if raw_tap is not None and not CGEventTapIsEnabled(raw_tap):
+            CGEventTapEnable(raw_tap, True)
+            diag("tap_watchdog_reenabled", tap="raw_combo")
 
     # ── raw combo tap ─────────────────────────────────────────────────────
 
@@ -479,6 +555,14 @@ class HotkeyListener:
         self._raw_tap_starting = True
 
         def _tap_callback(_proxy, event_type, event, _refcon):
+            if event_type in (kCGEventTapDisabledByTimeout, kCGEventTapDisabledByUserInput):
+                if self._raw_tap is not None:
+                    try:
+                        CGEventTapEnable(self._raw_tap, True)
+                        diag("raw_combo_tap_reenabled", reason=f"{event_type:#x}")
+                    except Exception as exc:
+                        diag("raw_combo_tap_reenable_failed", error_type=exc.__class__.__name__)
+                return event
             if self._paused:
                 return event
             try:
@@ -612,6 +696,15 @@ class HotkeyListener:
 
     def _intercept_darwin_event(self, event_type: int, event: object) -> object | None:
         """Suppress only the character event that completes the hands-free combo."""
+        if event_type in (kCGEventTapDisabledByTimeout, kCGEventTapDisabledByUserInput):
+            tap = getattr(self._listener, "_wk_tap", None)
+            if tap is not None:
+                try:
+                    CGEventTapEnable(tap, True)
+                    diag("pynput_tap_reenabled", reason=f"{event_type:#x}")
+                except Exception as exc:
+                    diag("pynput_tap_reenable_failed", error_type=exc.__class__.__name__)
+            return event
         if event_type not in (kCGEventKeyDown, kCGEventKeyUp):
             return event
 

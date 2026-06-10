@@ -625,3 +625,96 @@ def test_stop_pauses_without_destroying_underlying_listener_thread():
     assert listener._mode == "idle"
     assert fake_listener.stopped is False
     assert fake_listener.joined is False
+
+
+def _basic_listener() -> HotkeyListener:
+    return HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+    )
+
+
+class _TapCapturingListener:
+    """Mimics pynput's darwin listener: _create_event_tap returns a local tap."""
+
+    def __init__(self, tap) -> None:
+        self._tap = tap
+
+    def _create_event_tap(self):
+        return self._tap
+
+
+def test_capture_pynput_tap_stashes_handle_on_create():
+    listener = _basic_listener()
+    sentinel_tap = object()
+    pynput_listener = _TapCapturingListener(sentinel_tap)
+
+    listener._capture_pynput_tap(pynput_listener)
+    returned = pynput_listener._create_event_tap()
+
+    assert returned is sentinel_tap
+    assert pynput_listener._wk_tap is sentinel_tap
+
+
+def test_watchdog_reenables_disabled_pynput_and_raw_taps():
+    listener = _basic_listener()
+    pynput_tap = object()
+    raw_tap = object()
+    listener._listener = type("L", (), {})()
+    listener._listener._wk_tap = pynput_tap
+    listener._raw_tap = raw_tap
+
+    with (
+        unittest.mock.patch(
+            "whisperkey_mac.keyboard_listener.CGEventTapIsEnabled", return_value=False
+        ),
+        unittest.mock.patch(
+            "whisperkey_mac.keyboard_listener.CGEventTapEnable"
+        ) as mock_enable,
+    ):
+        listener._reenable_disabled_taps()
+
+    enabled = {call.args[0] for call in mock_enable.call_args_list}
+    assert pynput_tap in enabled
+    assert raw_tap in enabled
+    for call in mock_enable.call_args_list:
+        assert call.args[1] is True
+
+
+def test_watchdog_leaves_enabled_taps_untouched():
+    listener = _basic_listener()
+    listener._listener = type("L", (), {})()
+    listener._listener._wk_tap = object()
+    listener._raw_tap = object()
+
+    with (
+        unittest.mock.patch(
+            "whisperkey_mac.keyboard_listener.CGEventTapIsEnabled", return_value=True
+        ),
+        unittest.mock.patch(
+            "whisperkey_mac.keyboard_listener.CGEventTapEnable"
+        ) as mock_enable,
+    ):
+        listener._reenable_disabled_taps()
+
+    mock_enable.assert_not_called()
+
+
+def test_intercept_reenables_pynput_tap_on_timeout_disable():
+    listener = _basic_listener()
+    pynput_tap = object()
+    listener._listener = type("L", (), {})()
+    listener._listener._wk_tap = pynput_tap
+
+    with unittest.mock.patch(
+        "whisperkey_mac.keyboard_listener.CGEventTapEnable"
+    ) as mock_enable:
+        result = listener._intercept_darwin_event(
+            keyboard_listener_module.kCGEventTapDisabledByTimeout, object()
+        )
+
+    mock_enable.assert_called_once_with(pynput_tap, True)
+    assert result is not None

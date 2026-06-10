@@ -26,3 +26,4 @@ handoff-*.md
 *-prompt.md
 PROMPT-FOR-NEXT-AGENT.md
 .planning/
+scripts/tmp/
