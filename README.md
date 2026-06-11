@@ -60,6 +60,9 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 
 ### ⚙️ Full-featured control
 - **Settings GUI** with 5 tabs: General, Voice, Word Fix, Usage, Advanced
+- **Check for Updates** — menu bar one-click update check; auto-checks once per day in the background
+- **Self-update** — download, verify signature, and swap in the new version without re-downloading the DMG
+- **Auto TCC recovery** — detects signing identity changes and clears stale permission records automatically; no more manual re-authorization after updates
 - **Menu bar app** — at-a-glance status, pause/resume service, quick Settings access
 - **Word Replacements dictionary** — map `cloude → Claude`, `gpt → GPT`, and similar corrections automatically
 - **Token usage dashboard** — track OpenAI consumption (today / this week / all time) and disk footprint
@@ -319,7 +322,7 @@ Automatically checks: process status · Accessibility · Input Monitoring · aud
 | Transcription not pasting | Check **Accessibility** permission |
 | Post-processing not applying | Re-run `whisperkey setup` or set `OPENAI_API_KEY`; check Settings → Voice → Processing Mode |
 | `inject_path=applescript` in logs | Expected for Electron/web chat apps; it's the compatibility paste path |
-| Upgraded `.app` stopped working | Re-authorize Input Monitoring + Accessibility (CDHash changed) |
+| Upgraded `.app` stopped working | v3.1.0+ handles this automatically — otherwise re-authorize Input Monitoring + Accessibility |
 
 ```bash
 tail -f /tmp/whisperkey.log                           # live logs
