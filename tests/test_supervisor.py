@@ -89,3 +89,23 @@ def test_supervisor_can_launch_packaged_app_executable():
     assert args == ["/Applications/WhisperKey.app/Contents/MacOS/WhisperKey"]
     assert env["WHISPERKEY_APP_CHILD"] == "1"
     assert env["WHISPERKEY_SUPERVISED"] == "1"
+
+
+def test_supervisor_relaunches_silently_on_restart_exit_code(tmp_path: Path):
+    from whisperkey_mac.supervisor import RESTART_EXIT_CODE
+
+    crash_log = tmp_path / "last-crash.log"
+    supervisor = Supervisor(
+        crash_log_path=crash_log,
+        backoff_s=0.0,
+        sleep_fn=lambda _seconds: None,
+    )
+    returns = iter([RESTART_EXIT_CODE, 0])
+    supervisor._run_child = unittest.mock.MagicMock(side_effect=lambda: next(returns))
+
+    with unittest.mock.patch("whisperkey_mac.supervisor.notify") as mock_notify:
+        assert supervisor.run() == 0
+
+    assert supervisor._run_child.call_count == 2
+    mock_notify.assert_not_called()
+    assert not crash_log.exists()

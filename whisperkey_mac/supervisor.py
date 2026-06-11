@@ -19,6 +19,9 @@ FAULT_LOG_PATH = Path("/tmp/whisperkey-faulthandler.log")
 RESTART_WINDOW_S = 300.0
 RESTART_LIMIT = 3
 BACKOFF_S = 3.0
+# Child exits with this code to request a silent relaunch (e.g. after the
+# onboarding flow grants Input Monitoring, which needs a fresh process).
+RESTART_EXIT_CODE = 42
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,8 @@ class Supervisor:
             returncode = self._run_child()
             if self._terminating:
                 return 0
+            if returncode == RESTART_EXIT_CODE:
+                continue
             if returncode == 0:
                 return 0
 

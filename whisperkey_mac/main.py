@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from whisperkey_mac.config import AppConfig, config_exists, load_config, save_config
@@ -9,6 +11,7 @@ from whisperkey_mac.diagnostics import diag, enable_faulthandler, start_periodic
 from whisperkey_mac.launch_agent import LaunchAgentManager
 from whisperkey_mac.service_controller import ServiceController
 from whisperkey_mac.keychain import save_openai_api_key
+from whisperkey_mac.supervisor import RESTART_EXIT_CODE
 
 
 class App:
@@ -19,6 +22,7 @@ class App:
         self._lock_file = None
         self._settings_retry_pending = False
         self._settings_window = None
+        self._onboarding_window = None
         self._pending_settings_save = None
         self._settings_save_retry_pending = False
 
@@ -44,6 +48,16 @@ class App:
 
         lang = cfg.ui_language
         _ = lambda k: t(k, lang)
+
+        from whisperkey_mac import onboarding
+
+        if onboarding.is_frozen():
+            if onboarding.maybe_offer_move_to_applications(
+                lang, before_relaunch=self._release_single_instance_lock
+            ):
+                diag("app_relaunching_from_applications")
+                return
+
         _sig_name_holder: list[str] = []
 
         def _handle_signal(signum: int, _frame: object) -> None:
@@ -77,7 +91,14 @@ class App:
         self._menu_bar = build_menu_bar_controller(
             self._service,
             open_settings=self.open_settings,
+            open_onboarding=self.open_onboarding,
         )
+
+        from whisperkey_mac import permissions
+
+        if onboarding.is_frozen() and not permissions.required_granted():
+            diag("app_permissions_missing_at_start")
+            callLater(0.6, self.open_onboarding)
 
         diag("app_run_enter")
         app.run()
@@ -88,21 +109,66 @@ class App:
         print(f"\n[whisperkey] {_('shutting_down')} ({sig_name})")
         self._service.shutdown()
 
-    def _acquire_single_instance_lock(self) -> bool:
+    def _acquire_single_instance_lock(self, attempts: int = 6, retry_delay_s: float = 0.5) -> bool:
+        # Retry briefly: during a self-relaunch (move to /Applications,
+        # permission restart) the old instance may still hold the lock for a
+        # moment while it shuts down.
         import fcntl
 
         lock_path = Path(tempfile.gettempdir()) / "whisperkey.lock"
-        lock_file = lock_path.open("w")
+        for attempt in range(attempts):
+            lock_file = lock_path.open("w")
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                lock_file.close()
+                if attempt == attempts - 1:
+                    return False
+                time.sleep(retry_delay_s)
+                continue
+            lock_file.write(str(os.getpid()))
+            lock_file.truncate()
+            lock_file.flush()
+            self._lock_file = lock_file
+            return True
+        return False
+
+    def _release_single_instance_lock(self) -> None:
+        lock_file = self._lock_file
+        self._lock_file = None
+        if lock_file is not None:
+            try:
+                lock_file.close()
+            except OSError:
+                pass
+
+    def open_onboarding(self) -> None:
+        diag("app_open_onboarding")
+        from whisperkey_mac.onboarding import build_onboarding_window_controller
+
+        if self._onboarding_window is None:
+            self._onboarding_window = build_onboarding_window_controller(
+                lang=self._config.ui_language,
+                on_restart=self._restart_app,
+            )
+        self._onboarding_window.show()
+
+    def _restart_app(self) -> None:
+        """Exit so the supervisor relaunches us — needed after granting Input
+        Monitoring, which only applies to a fresh process."""
+        diag("app_restart_requested")
         try:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            lock_file.close()
-            return False
-        lock_file.write(str(__import__("os").getpid()))
-        lock_file.truncate()
-        lock_file.flush()
-        self._lock_file = lock_file
-        return True
+            self._service.shutdown()
+        except Exception:
+            pass
+        stop_periodic_metrics()
+        self._release_single_instance_lock()
+        if os.environ.get("WHISPERKEY_APP_CHILD") == "1":
+            os._exit(RESTART_EXIT_CODE)
+        from whisperkey_mac.i18n import t as _t
+
+        print(f"[whisperkey] {_t('onboarding_manual_restart', self._config.ui_language)}")
+        os._exit(0)
 
     def open_settings(self) -> None:
         diag("app_open_settings_start")

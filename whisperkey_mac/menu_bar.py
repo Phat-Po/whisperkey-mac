@@ -77,26 +77,34 @@ def status_image_for_state_and_mode(is_running: bool, mode: str):
     return image
 
 
-def build_menu_bar_controller(service, *, open_settings):
-    return MenuBarController.alloc().initWithService_openSettings_(service, open_settings)
+def build_menu_bar_controller(service, *, open_settings, open_onboarding=None):
+    return MenuBarController.alloc().initWithService_openSettings_openOnboarding_(
+        service, open_settings, open_onboarding
+    )
 
 
 class MenuBarController(NSObject):
-    def initWithService_openSettings_(self, service, open_settings):
+    def initWithService_openSettings_openOnboarding_(self, service, open_settings, open_onboarding):
         self = objc.super(MenuBarController, self).init()
         if self is None:
             return None
 
         self._service = service
         self._open_settings = open_settings
+        self._open_onboarding = open_onboarding
         self._status_item = None
         self._status_line_item = None
         self._toggle_service_item = None
+        self._perm_item = None
         self._mode = getattr(self._service.config, "online_prompt_mode", "disabled")
         self._build_menu()
         self._service.register_status_callback(self._refresh_from_service)
         self.refresh()
         return self
+
+    @property
+    def _lang(self) -> str:
+        return getattr(self._service.config, "ui_language", "en")
 
     def _build_menu(self) -> None:
         diag("menu_bar_build_start")
@@ -104,10 +112,22 @@ class MenuBarController(NSObject):
         self._sync_status_button()
 
         menu = NSMenu.alloc().init()
+        menu.setDelegate_(self)
 
         self._status_line_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Status: -", None, "")
         self._status_line_item.setEnabled_(False)
         menu.addItem_(self._status_line_item)
+
+        from whisperkey_mac.i18n import t
+
+        self._perm_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            t("menu_fix_permissions", self._lang),
+            "fixPermissions:",
+            "",
+        )
+        self._perm_item.setTarget_(self)
+        self._perm_item.setHidden_(True)
+        menu.addItem_(self._perm_item)
 
         menu.addItem_(NSMenuItem.separatorItem())
 
@@ -144,6 +164,29 @@ class MenuBarController(NSObject):
         self._sync_status_button()
         self._status_line_item.setTitle_(status_line_title(self._service.status_label(), self._mode))
         self._toggle_service_item.setTitle_(service_menu_title_for_state(is_running))
+        self._refresh_permission_item()
+
+    def menuWillOpen_(self, _menu) -> None:
+        self._refresh_permission_item()
+
+    def _refresh_permission_item(self) -> None:
+        if self._perm_item is None:
+            return
+        try:
+            from whisperkey_mac import permissions
+
+            granted = permissions.required_granted()
+        except Exception:
+            granted = True
+        self._perm_item.setHidden_(granted)
+
+    def fixPermissions_(self, _sender) -> None:
+        diag("menu_fix_permissions")
+        if self._open_onboarding is None:
+            return
+        from whisperkey_mac.overlay import dispatch_to_main
+
+        dispatch_to_main(self._open_onboarding)
 
     def _refresh_from_service(self) -> None:
         from whisperkey_mac.overlay import dispatch_to_main
