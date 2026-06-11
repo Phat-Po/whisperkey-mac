@@ -84,7 +84,7 @@ WhisperKey 以 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在�
 
 ### 方式 A — 下载 App（推荐）
 
-到 [Releases 页面](https://github.com/Phat-Po/whisperkey-mac/releases) 下载 `WhisperKey-macOS-arm64-v3.0.1.zip`，解压后把 `WhisperKey.app` 拖到 `/应用程式`。
+到 [Releases 页面](https://github.com/Phat-Po/whisperkey-mac/releases) 下载 `WhisperKey-macOS-arm64-v3.0.2.zip`，解压后把 `WhisperKey.app` 拖到 `/应用程式`。
 
 首次启动时授权两个 macOS 权限：
 - **输入监控** — 让 WhisperKey 监听快捷键

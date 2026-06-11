@@ -684,6 +684,104 @@ def test_watchdog_reenables_disabled_pynput_and_raw_taps():
         assert call.args[1] is True
 
 
+def test_watchdog_rebuilds_when_authorization_is_restored():
+    listener = _basic_listener()
+    listener._listener_ax_trusted = False
+
+    with (
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.AXIsProcessTrusted", return_value=True),
+        unittest.mock.patch.object(listener, "_schedule_tap_rebuild") as mock_rebuild,
+    ):
+        rebuilt = listener._schedule_rebuild_if_authorization_restored()
+
+    assert rebuilt is True
+    mock_rebuild.assert_called_once_with("authorization_restored")
+
+
+def test_watchdog_marks_lost_authorization_without_rebuild():
+    listener = _basic_listener()
+    listener._listener_ax_trusted = True
+
+    with (
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.AXIsProcessTrusted", return_value=False),
+        unittest.mock.patch.object(listener, "_schedule_tap_rebuild") as mock_rebuild,
+    ):
+        rebuilt = listener._schedule_rebuild_if_authorization_restored()
+
+    assert rebuilt is False
+    assert listener._listener_ax_trusted is False
+    mock_rebuild.assert_not_called()
+
+
+def test_watchdog_loop_exits_after_generation_changes():
+    listener = _basic_listener()
+    listener._watchdog_generation = 1
+    calls = []
+
+    def _reenable_once():
+        calls.append("reenable")
+        listener._watchdog_generation = 2
+
+    with (
+        unittest.mock.patch.object(listener._watchdog_stop, "wait", return_value=False),
+        unittest.mock.patch.object(listener, "_reenable_disabled_taps", side_effect=_reenable_once),
+    ):
+        listener._watchdog_loop(1)
+
+    assert calls == ["reenable"]
+
+
+def test_watchdog_rebuilds_after_repeated_disabled_tap():
+    listener = _basic_listener()
+    listener._tap_rebuild_disabled_threshold = 2
+    tap = object()
+
+    with (
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.CGEventTapIsEnabled", return_value=False),
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.CGEventTapEnable"),
+        unittest.mock.patch.object(listener, "_schedule_tap_rebuild") as mock_rebuild,
+    ):
+        listener._reenable_tap_if_disabled("pynput", tap)
+        mock_rebuild.assert_not_called()
+
+        listener._reenable_tap_if_disabled("pynput", tap)
+
+    mock_rebuild.assert_called_once_with("pynput_repeatedly_disabled")
+    assert listener._disabled_tap_counts["pynput"] == 0
+
+
+def test_tap_rebuild_preserves_paused_state():
+    listener = _basic_listener()
+    listener._paused = True
+    listener._rebuild_pending = True
+
+    with (
+        unittest.mock.patch.object(listener, "full_stop") as mock_full_stop,
+        unittest.mock.patch.object(listener, "start") as mock_start,
+    ):
+        listener._rebuild_event_taps("authorization_restored")
+
+    mock_full_stop.assert_called_once_with()
+    mock_start.assert_not_called()
+    assert listener._rebuild_pending is False
+
+
+def test_tap_rebuild_restarts_when_active():
+    listener = _basic_listener()
+    listener._paused = False
+    listener._rebuild_pending = True
+
+    with (
+        unittest.mock.patch.object(listener, "full_stop") as mock_full_stop,
+        unittest.mock.patch.object(listener, "start") as mock_start,
+    ):
+        listener._rebuild_event_taps("authorization_restored")
+
+    mock_full_stop.assert_called_once_with()
+    mock_start.assert_called_once_with()
+    assert listener._rebuild_pending is False
+
+
 def test_watchdog_leaves_enabled_taps_untouched():
     listener = _basic_listener()
     listener._listener = type("L", (), {})()

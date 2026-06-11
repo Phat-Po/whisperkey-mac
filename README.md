@@ -84,7 +84,7 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 
 ### Option A — Download the App (recommended)
 
-Grab `WhisperKey-macOS-arm64-v3.0.1.zip` from the [Releases page](https://github.com/Phat-Po/whisperkey-mac/releases), unzip, and move `WhisperKey.app` to `/Applications`.
+Grab `WhisperKey-macOS-arm64-v3.0.2.zip` from the [Releases page](https://github.com/Phat-Po/whisperkey-mac/releases), unzip, and move `WhisperKey.app` to `/Applications`.
 
 On first launch, grant the two macOS permissions:
 - **Input Monitoring** — lets WhisperKey detect the hotkey

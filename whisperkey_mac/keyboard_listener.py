@@ -334,7 +334,13 @@ class HotkeyListener:
         # re-enables any tap macOS has silently switched off.
         self._watchdog_thread: threading.Thread | None = None
         self._watchdog_stop = threading.Event()
+        self._watchdog_generation: int = 0
         self._watchdog_interval_s: float = 5.0
+        self._listener_ax_trusted: bool | None = None
+        self._rebuild_lock = threading.Lock()
+        self._rebuild_pending: bool = False
+        self._disabled_tap_counts: dict[str, int] = {}
+        self._tap_rebuild_disabled_threshold: int = 3
         diag(
             "hotkey_listener_config",
             hold_key=_safe_name_label(self._hold_name),
@@ -403,6 +409,7 @@ class HotkeyListener:
         intercept = None
         if self._listener is None:
             trusted = AXIsProcessTrusted() if AXIsProcessTrusted is not None else True
+            self._listener_ax_trusted = bool(trusted)
             # Use active intercept only when accessibility trust is confirmed;
             # otherwise fall back to listen-only so the tap is created at all.
             intercept = self._intercept_darwin_event if trusted else None
@@ -441,6 +448,8 @@ class HotkeyListener:
         self._stop_watchdog()
         listener = self._listener
         self._listener = None
+        self._listener_ax_trusted = None
+        self._disabled_tap_counts.clear()
         if listener is not None:
             try:
                 listener.stop()
@@ -491,34 +500,117 @@ class HotkeyListener:
             return
         if not _HAS_QUARTZ:
             return
+        self._watchdog_generation += 1
+        generation = self._watchdog_generation
         self._watchdog_stop.clear()
-        t = threading.Thread(target=self._watchdog_loop, name="TapWatchdog", daemon=True)
+        t = threading.Thread(
+            target=self._watchdog_loop,
+            args=(generation,),
+            name="TapWatchdog",
+            daemon=True,
+        )
         self._watchdog_thread = t
         t.start()
         diag("tap_watchdog_start", interval_s=f"{self._watchdog_interval_s:.1f}")
 
     def _stop_watchdog(self) -> None:
+        self._watchdog_generation += 1
         self._watchdog_stop.set()
         self._watchdog_thread = None
 
-    def _watchdog_loop(self) -> None:
+    def _watchdog_loop(self, generation: int) -> None:
         while not self._watchdog_stop.wait(self._watchdog_interval_s):
+            if generation != self._watchdog_generation:
+                break
             try:
                 self._reenable_disabled_taps()
             except Exception as exc:  # pragma: no cover - defensive
                 diag("tap_watchdog_error", error_type=exc.__class__.__name__)
+            if generation != self._watchdog_generation:
+                break
 
     def _reenable_disabled_taps(self) -> None:
         """Re-enable any tap macOS has silently disabled (timeout/sleep/wake)."""
+        if self._schedule_rebuild_if_authorization_restored():
+            return
         listener = self._listener
         pynput_tap = getattr(listener, "_wk_tap", None) if listener is not None else None
-        if pynput_tap is not None and not CGEventTapIsEnabled(pynput_tap):
-            CGEventTapEnable(pynput_tap, True)
-            diag("tap_watchdog_reenabled", tap="pynput")
+        self._reenable_tap_if_disabled("pynput", pynput_tap)
         raw_tap = self._raw_tap
-        if raw_tap is not None and not CGEventTapIsEnabled(raw_tap):
-            CGEventTapEnable(raw_tap, True)
-            diag("tap_watchdog_reenabled", tap="raw_combo")
+        self._reenable_tap_if_disabled("raw_combo", raw_tap)
+
+    def _schedule_rebuild_if_authorization_restored(self) -> bool:
+        if AXIsProcessTrusted is None or self._listener_ax_trusted is None:
+            return False
+        trusted = bool(AXIsProcessTrusted())
+        if not trusted and self._listener_ax_trusted:
+            self._listener_ax_trusted = False
+            diag("tap_watchdog_trust_lost")
+            return False
+        if trusted and not self._listener_ax_trusted:
+            self._schedule_tap_rebuild("authorization_restored")
+            return True
+        return False
+
+    def _reenable_tap_if_disabled(self, tap_name: str, tap: object | None) -> None:
+        if tap is None:
+            self._disabled_tap_counts.pop(tap_name, None)
+            return
+        try:
+            enabled = bool(CGEventTapIsEnabled(tap))
+        except Exception as exc:
+            diag("tap_watchdog_check_failed", tap=tap_name, error_type=exc.__class__.__name__)
+            self._record_disabled_tap(tap_name)
+            return
+        if enabled:
+            self._disabled_tap_counts.pop(tap_name, None)
+            return
+
+        try:
+            CGEventTapEnable(tap, True)
+            diag("tap_watchdog_reenabled", tap=tap_name)
+        except Exception as exc:
+            diag("tap_watchdog_reenable_failed", tap=tap_name, error_type=exc.__class__.__name__)
+        self._record_disabled_tap(tap_name)
+
+    def _record_disabled_tap(self, tap_name: str) -> None:
+        count = self._disabled_tap_counts.get(tap_name, 0) + 1
+        self._disabled_tap_counts[tap_name] = count
+        if count >= self._tap_rebuild_disabled_threshold:
+            self._disabled_tap_counts[tap_name] = 0
+            self._schedule_tap_rebuild(f"{tap_name}_repeatedly_disabled")
+
+    def _schedule_tap_rebuild(self, reason: str) -> None:
+        with self._rebuild_lock:
+            if self._rebuild_pending:
+                diag("tap_rebuild_ignored", reason=reason, pending=True)
+                return
+            self._rebuild_pending = True
+        t = threading.Thread(
+            target=self._rebuild_event_taps,
+            args=(reason,),
+            name="TapRebuild",
+            daemon=True,
+        )
+        t.start()
+        diag("tap_rebuild_scheduled", reason=reason)
+
+    def _rebuild_event_taps(self, reason: str) -> None:
+        was_paused = self._paused
+        diag("tap_rebuild_start", reason=reason, paused=was_paused)
+        try:
+            self.full_stop()
+            if not was_paused:
+                self.start()
+                restarted = True
+            else:
+                restarted = False
+            diag("tap_rebuild_end", reason=reason, restarted=restarted)
+        except Exception as exc:  # pragma: no cover - defensive
+            diag("tap_rebuild_error", reason=reason, error_type=exc.__class__.__name__)
+        finally:
+            with self._rebuild_lock:
+                self._rebuild_pending = False
 
     # ── raw combo tap ─────────────────────────────────────────────────────
 
@@ -619,7 +711,7 @@ class HotkeyListener:
             diag("raw_combo_tap_started", active=active, mod_flags=f"{mod_flags:#x}", char_vk=char_vk)
 
             # Run the loop — this blocks until the loop is stopped.
-            while self._raw_tap is not None:
+            while self._raw_tap is tap:
                 result = CFRunLoopRunInMode(kCFRunLoopDefaultMode, 5.0, False)
                 try:
                     if result != kCFRunLoopRunTimedOut:

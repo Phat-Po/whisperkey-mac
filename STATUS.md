@@ -2,6 +2,19 @@
 
 ## Current
 
+### 2026-06-11 | v3.0.2 hotkey self-healing release
+
+Done this session:
+- Combined the recent hotkey reliability updates into v3.0.2.
+- Added CGEventTap watchdog recovery for disabled pynput/raw taps.
+- Added self-healing tap rebuild when Accessibility/Input Monitoring trust is restored after launch.
+- Added escalation from repeated disabled tap re-enable attempts to full listener rebuild.
+- Added regression tests for authorization recovery, repeated disabled taps, rebuild state preservation, and stale watchdog shutdown.
+
+Current state:
+- Release artifact target: `dist/release/WhisperKey-macOS-arm64-v3.0.2.zip`.
+- GitHub release target: `https://github.com/Phat-Po/whisperkey-mac/releases/tag/v3.0.2`.
+
 ### 2026-06-04 | v3.0.1 release and announcement route corrected
 
 Done this session:
@@ -18,6 +31,7 @@ Current state:
 
 ## Milestones
 
+- 2026-06-11 | v3.0.2 packaged with hotkey self-healing for restored permissions and disabled event taps.
 - 2026-06-04 | v3.0.1 shipped with the handsfree `cmd+\` hotkey fix and public release artifact.
 
 ## Archive
