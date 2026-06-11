@@ -36,8 +36,20 @@ fi
 echo "[whisperkey] Stripping extended attributes..."
 xattr -cr "${APP_PATH}"
 
-echo "[whisperkey] Applying ad-hoc signature..."
-codesign --force --deep --sign - --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
+SIGN_IDENTITY="${WHISPERKEY_SIGN_IDENTITY:-}"
+if [[ -z "${SIGN_IDENTITY}" ]]; then
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/{print $2; exit}')"
+fi
+
+if [[ -n "${SIGN_IDENTITY}" ]]; then
+  echo "[whisperkey] Signing with stable identity: ${SIGN_IDENTITY}"
+  echo "[whisperkey] (stable identity keeps TCC permission grants across rebuilds)"
+  codesign --force --deep --timestamp=none --sign "${SIGN_IDENTITY}" --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
+else
+  echo "[whisperkey] WARNING: no signing identity found — falling back to ad-hoc." >&2
+  echo "[whisperkey] WARNING: ad-hoc CDHash changes every build; TCC grants will reset." >&2
+  codesign --force --deep --sign - --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
+fi
 
 echo "[whisperkey] Inspecting Info.plist..."
 plutil -p "${APP_PATH}/Contents/Info.plist"

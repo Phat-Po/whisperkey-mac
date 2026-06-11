@@ -130,6 +130,7 @@ app = BUNDLE(
         "CFBundleVersion": project_version,
         "LSUIElement": True,
         "LSMinimumSystemVersion": "12.0",
+        "LSApplicationCategoryType": "public.app-category.productivity",
         "NSAppleEventsUsageDescription": "WhisperKey uses Apple Events to paste transcribed text into the active app when direct accessibility insertion is unavailable.",
         "NSMicrophoneUsageDescription": "WhisperKey needs microphone access to record speech for local transcription.",
         "NSHumanReadableCopyright": "Copyright © 2026 Phat-Po.",

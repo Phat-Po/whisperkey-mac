@@ -85,13 +85,12 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 
 ### Option A — Download the App (recommended)
 
-Grab `WhisperKey-macOS-arm64-v3.0.2.zip` from the [Releases page](https://github.com/Phat-Po/whisperkey-mac/releases), unzip, and move `WhisperKey.app` to `/Applications`.
+1. Download `WhisperKey-macOS-arm64-v<version>.dmg` from the [Releases page](https://github.com/Phat-Po/whisperkey-mac/releases).
+2. Open the DMG and drag `WhisperKey.app` into the `Applications` folder.
+3. First launch: right-click `WhisperKey.app` → **Open**. If macOS says the developer cannot be verified, go to **System Settings → Privacy & Security** and click **Open Anyway** (the build is signed but not notarized by Apple — this prompt appears only once).
+4. WhisperKey shows a **setup window** listing the permissions it needs — **Accessibility**, **Input Monitoring**, and **Microphone** — with one-click buttons that jump to the right System Settings pane. Grant each one, then click **Restart WhisperKey** in the setup window to finish.
 
-On first launch, grant the two macOS permissions:
-- **Input Monitoring** — lets WhisperKey detect the hotkey
-- **Accessibility** — lets WhisperKey paste text into the active app
-
-This build is locally signed but not notarized by Apple. If macOS blocks the first launch, right-click `WhisperKey.app` → **Open** → confirm.
+If you launch the app from `Downloads` instead, WhisperKey offers to move itself into `Applications` automatically.
 
 The first transcription downloads the selected Whisper model from HuggingFace (internet required once). After that, transcription runs fully offline.
 

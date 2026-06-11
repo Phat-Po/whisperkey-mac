@@ -85,13 +85,12 @@ WhisperKey 以 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在�
 
 ### 方式 A — 下载 App（推荐）
 
-到 [Releases 页面](https://github.com/Phat-Po/whisperkey-mac/releases) 下载 `WhisperKey-macOS-arm64-v3.0.2.zip`，解压后把 `WhisperKey.app` 拖到 `/应用程式`。
+1. 到 [Releases 页面](https://github.com/Phat-Po/whisperkey-mac/releases) 下载 `WhisperKey-macOS-arm64-v<版本号>.dmg`。
+2. 打开 DMG，把 `WhisperKey.app` 拖进 `Applications`（应用程序）文件夹。
+3. 首次启动：在「应用程序」里右键 `WhisperKey.app` → **打开**。若 macOS 提示「无法验证开发者」，到 **系统设置 → 隐私与安全性** 点 **仍要打开**（此版本已签名但未经 Apple 公证，该提示只出现一次）。
+4. WhisperKey 会弹出**安装向导**，列出需要的权限 —— **辅助功能**、**输入监控**、**麦克风**，每项都有按钮直接跳到对应的系统设置页面。全部授权后，点向导里的 **重启 WhisperKey** 完成安装。
 
-首次启动时授权两个 macOS 权限：
-- **输入监控** — 让 WhisperKey 监听快捷键
-- **辅助使用** — 让 WhisperKey 把文字贴进当前应用
-
-此版本为本机签名但未经过 Apple 公证。若 macOS 挡下首次启动，请右键 `WhisperKey.app` → **打开** → 确认。
+如果直接从「下载」文件夹启动，WhisperKey 会主动提示把自己移动到「应用程序」。
 
 首次转录会从 HuggingFace 下载所选 Whisper 模型（需联网一次）。之后转录完全离线运行。
 
