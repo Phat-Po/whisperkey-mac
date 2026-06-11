@@ -339,6 +339,49 @@ class ServiceController:
             getattr(self._config, "ui_language", "en"),
         )
 
+    # ── Model management ────────────────────────────────────────────────────
+
+    def change_model(self, model_size: str) -> None:
+        """Switch to a different model. Must be called on the main thread."""
+        if model_size == self._config.model_size:
+            return
+        from whisperkey_mac import model_manager
+        from whisperkey_mac.config import save_config
+
+        diag("model_change", from_model=self._config.model_size, to_model=model_size)
+        self._config.model_size = model_size
+        save_config(self._config)
+        if self._service_running:
+            self._transcriber.unload()
+            self._transcriber = Transcriber(self._config)
+            self.warm_up_model_async()
+        self._notify_status_changed()
+
+    def download_and_switch_model(
+        self,
+        model_size: str,
+        on_progress=None,
+        on_done=None,
+    ) -> None:
+        """Download a model in background, then switch to it.
+
+        on_progress(bytes_done, bytes_total, elapsed_s) — called from worker thread
+        on_done(local_path_or_None) — called from worker thread
+        """
+        from whisperkey_mac import model_manager
+
+        def _on_done(path):
+            if path:
+                self.change_model(model_size)
+            if on_done:
+                on_done(path)
+
+        model_manager.download_model_async(
+            model_size,
+            on_done=_on_done,
+            progress_cb=on_progress,
+        )
+
     def _start_recording(self) -> None:
         if not hasattr(self, "_overlay") or self._overlay is None:
             diag("recording_start_ignored", reason="overlay_missing")

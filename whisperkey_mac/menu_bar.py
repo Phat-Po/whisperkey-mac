@@ -97,6 +97,17 @@ def build_menu_bar_controller(service, *, open_settings, open_onboarding=None, c
     )
 
 
+# ── Model catalog (shared with model_manager, duplicated here to avoid circular import) ──
+
+MODEL_ORDER = ["tiny", "base", "small", "large-v3-turbo"]
+MODEL_SIZES = {
+    "tiny": "~75 MB",
+    "base": "~141 MB",
+    "small": "~464 MB",
+    "large-v3-turbo": "~1.5 GB",
+}
+
+
 class MenuBarController(NSObject):
     def initWithService_openSettings_openOnboarding_checkForUpdates_(
         self, service, open_settings, open_onboarding, check_for_updates
@@ -154,6 +165,16 @@ class MenuBarController(NSObject):
         self._perm_item.setHidden_(True)
         menu.addItem_(self._perm_item)
 
+        # API key indicator (hidden when key is set)
+        self._api_key_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            t("menu_model_no_api_key", self._lang),
+            "openSettings:",
+            "",
+        )
+        self._api_key_item.setTarget_(self)
+        self._api_key_item.setHidden_(True)
+        menu.addItem_(self._api_key_item)
+
         menu.addItem_(NSMenuItem.separatorItem())
 
         self._toggle_service_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -171,6 +192,15 @@ class MenuBarController(NSObject):
         mode_parent_item.setSubmenu_(self._mode_menu)
         menu.addItem_(mode_parent_item)
         self._rebuild_mode_submenu()
+
+        # Model submenu
+        model_parent_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            t("menu_model", self._lang), None, ""
+        )
+        self._model_menu = NSMenu.alloc().init()
+        model_parent_item.setSubmenu_(self._model_menu)
+        menu.addItem_(model_parent_item)
+        self._rebuild_model_submenu()
 
         menu.addItem_(NSMenuItem.separatorItem())
 
@@ -214,10 +244,13 @@ class MenuBarController(NSObject):
         self._status_line_item.setTitle_(status_line_title(self._service.status_label(), self._mode))
         self._toggle_service_item.setTitle_(service_menu_title_for_state(is_running))
         self._refresh_permission_item()
+        self._refresh_api_key_item()
 
     def menuWillOpen_(self, _menu) -> None:
         self._refresh_permission_item()
+        self._refresh_api_key_item()
         self._rebuild_mode_submenu()
+        self._rebuild_model_submenu()
 
     def _rebuild_mode_submenu(self) -> None:
         if getattr(self, "_mode_menu", None) is None:
@@ -243,6 +276,112 @@ class MenuBarController(NSObject):
         self._service.set_online_prompt_mode(mode)
         self.refresh()
         self._rebuild_mode_submenu()
+
+    # ── Model submenu ───────────────────────────────────────────────────────
+
+    def _rebuild_model_submenu(self) -> None:
+        if getattr(self, "_model_menu", None) is None:
+            return
+        from whisperkey_mac.i18n import t
+
+        self._model_menu.removeAllItems()
+        current = getattr(self._service.config, "model_size", "small")
+
+        for model_key in MODEL_ORDER:
+            size_label = MODEL_SIZES.get(model_key, "")
+            from whisperkey_mac import model_manager
+
+            cached = model_manager.is_model_cached(model_key)
+            if cached:
+                title = t("menu_model_cached", self._lang, model=model_key, size=size_label)
+            else:
+                title = t("menu_model_not_cached", self._lang, model=model_key, size=size_label)
+
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                title,
+                "selectModel:" if cached else "downloadModel:",
+                "",
+            )
+            item.setTarget_(self)
+            item.setRepresentedObject_(model_key)
+            item.setState_(1 if model_key == current else 0)
+            if not cached:
+                item.setIndentationLevel_(1)
+            self._model_menu.addItem_(item)
+
+        # Show active download progress if any
+        dl = model_manager.get_current_download()
+        if dl and not dl.finished:
+            self._model_menu.addItem_(NSMenuItem.separatorItem())
+            pct = int(dl.bytes_done * 100 / dl.bytes_total) if dl.bytes_total > 0 else 0
+            progress_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                t("menu_model_downloading", self._lang, model=dl.model_size, pct=pct),
+                None,
+                "",
+            )
+            progress_item.setEnabled_(False)
+            self._model_menu.addItem_(progress_item)
+
+    def selectModel_(self, sender) -> None:
+        model_key = str(sender.representedObject())
+        diag("menu_select_model", model=model_key)
+        self._service.change_model(model_key)
+        self.refresh()
+        self._rebuild_model_submenu()
+
+    def downloadModel_(self, sender) -> None:
+        model_key = str(sender.representedObject())
+        diag("menu_download_model", model=model_key)
+        from whisperkey_mac import model_manager
+        from whisperkey_mac.i18n import t
+
+        size_label = MODEL_SIZES.get(model_key, "")
+        # Estimate ETA based on typical 3 MB/s download speed
+        info = model_manager.MODEL_CATALOG.get(model_key, {})
+        size_bytes = info.get("size_bytes", 0)
+        eta_s = size_bytes / (3 * 1024 * 1024) if size_bytes > 0 else 60
+        eta_str = model_manager.estimate_eta(size_bytes, size_bytes, eta_s) or "~1 min"
+
+        # Confirmation dialog
+        from AppKit import NSAlert, NSAlertFirstButtonReturn, NSApp
+
+        NSApp().activateIgnoringOtherApps_(True)
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_(t("menu_model_confirm_title", self._lang, model=model_key))
+        alert.setInformativeText_(t(
+            "menu_model_confirm_msg", self._lang, size=size_label, eta=eta_str,
+        ))
+        alert.addButtonWithTitle_(t("menu_model_confirm_download", self._lang))
+        alert.addButtonWithTitle_(t("menu_model_confirm_cancel", self._lang))
+        response = alert.runModal()
+        if response != NSAlertFirstButtonReturn:
+            return
+
+        # Start download
+        def _on_progress(bytes_done, bytes_total, elapsed):
+            from whisperkey_mac.overlay import dispatch_to_main
+
+            dispatch_to_main(self._rebuild_model_submenu)
+
+        def _on_done(path):
+            from whisperkey_mac.overlay import dispatch_to_main
+
+            dispatch_to_main(self._on_model_download_finished, model_key, path)
+
+        self._service.download_and_switch_model(
+            model_key,
+            on_progress=_on_progress,
+            on_done=_on_done,
+        )
+        self._rebuild_model_submenu()
+
+    def _on_model_download_finished(self, model_key, path) -> None:
+        if path:
+            diag("menu_model_download_success", model=model_key)
+        else:
+            diag("menu_model_download_failed", model=model_key)
+        self.refresh()
+        self._rebuild_model_submenu()
 
     def checkUpdates_(self, _sender) -> None:
         diag("menu_check_updates")
@@ -270,6 +409,17 @@ class MenuBarController(NSObject):
         except Exception:
             granted = True
         self._perm_item.setHidden_(granted)
+
+    def _refresh_api_key_item(self) -> None:
+        if getattr(self, "_api_key_item", None) is None:
+            return
+        try:
+            from whisperkey_mac.keychain import load_openai_api_key
+
+            has_key = bool(load_openai_api_key())
+        except Exception:
+            has_key = True
+        self._api_key_item.setHidden_(has_key)
 
     def fixPermissions_(self, _sender) -> None:
         diag("menu_fix_permissions")

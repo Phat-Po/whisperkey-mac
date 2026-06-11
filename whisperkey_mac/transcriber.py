@@ -9,6 +9,7 @@ from faster_whisper import WhisperModel
 
 from whisperkey_mac.config import AppConfig
 from whisperkey_mac.diagnostics import diag
+from whisperkey_mac import model_manager
 
 # Traditional Chinese → Simplified Chinese converter
 _t2s = opencc.OpenCC("t2s")
@@ -52,13 +53,12 @@ class Transcriber:
         return text
 
     def _resolve_local_model_path(self, model_size: str) -> str | None:
-        import os
-        hub_cache = Path(os.path.expanduser("~/.cache/huggingface/hub"))
-        snapshots_dir = hub_cache / f"models--Systran--faster-whisper-{model_size}" / "snapshots"
-        if not snapshots_dir.exists():
-            return None
-        snapshots = sorted(snapshots_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
-        return str(snapshots[0]) if snapshots else None
+        """Check local cache for a downloaded model. Returns path or None."""
+        return model_manager.model_local_path(model_size)
+
+    def is_model_cached(self) -> bool:
+        """Return True if the current model is cached locally (no download needed)."""
+        return model_manager.is_model_cached(self._config.model_size)
 
     def _ensure_loaded(self) -> None:
         if self._model is not None:

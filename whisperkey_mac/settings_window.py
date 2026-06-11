@@ -64,7 +64,7 @@ OUTPUT_LANGUAGE_OPTIONS = [
     ("en", "English"),
 ]
 
-MODEL_OPTIONS = ["base", "small", "large-v3-turbo"]
+MODEL_OPTIONS = ["tiny", "base", "small", "large-v3-turbo"]
 
 ONLINE_MODEL_OPTIONS = [
     "gpt-5.4",
@@ -604,6 +604,7 @@ class SettingsWindowController(NSObject):
         IW, IH = 430.0, 430.0
 
         tab_view.addTabViewItem_(self._build_general_tab(IW, IH))
+        tab_view.addTabViewItem_(self._build_model_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_voice_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_wordfix_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_advanced_tab(IW, IH))
@@ -662,6 +663,58 @@ class SettingsWindowController(NSObject):
         view.addSubview_(self._launch_checkbox)
 
         return self._tab_item("General", view)
+
+    @objc.python_method
+    def _build_model_tab(self, w: float, h: float) -> NSTabViewItem:
+        from whisperkey_mac import model_manager
+        from whisperkey_mac.i18n import t as _t
+
+        view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+        y = h - 50
+
+        lang = getattr(self._config, "ui_language", "en")
+        current_model = getattr(self._config, "model_size", "small")
+
+        self._lbl(view, _t("model_tab_current", lang, model=current_model), 20, y)
+        y -= 40
+
+        # Model radio buttons with status
+        self._model_radio_items = {}
+        for model_key in model_manager.MODEL_ORDER:
+            info = model_manager.MODEL_CATALOG[model_key]
+            cached = model_manager.is_model_cached(model_key)
+            status = "✓" if cached else "📥"
+
+            radio = NSButton.alloc().initWithFrame_(NSMakeRect(20.0, y, 300.0, 22.0))
+            radio.setButtonType_(6)  # NSRadioButton
+            radio.setTitle_(f"{model_key}  ({info['size_label']})  {status}")
+            radio.setState_(1 if model_key == current_model else 0)
+            radio.setRepresentedObject_(model_key)
+            view.addSubview_(radio)
+            self._model_radio_items[model_key] = radio
+
+            # Download button for uncached models
+            if not cached:
+                dl_btn = NSButton.alloc().initWithFrame_(NSMakeRect(330.0, y - 2, 90.0, 24.0))
+                dl_btn.setTitle_(_t("model_tab_download_btn", lang, model=model_key))
+                dl_btn.setBezelStyle_(1)
+                dl_btn.setTarget_(self)
+                dl_btn.setAction_("downloadModelFromSettings:")
+                dl_btn.setRepresentedObject_(model_key)
+                view.addSubview_(dl_btn)
+
+            y -= 30
+
+        # Cache info
+        y -= 20
+        total = model_manager.cache_total_bytes()
+        self._lbl(view, _t("model_tab_cache_size", lang, size=model_manager.format_bytes(total)), 20, y)
+        y -= 24
+        self._hint(view, _t("model_tab_cache_path", lang), 20, y)
+        y -= 24
+        self._hint(view, _t("model_tab_cache_info", lang), 20, y, width=390)
+
+        return self._tab_item(_t("model_tab_title", lang), view)
 
     @objc.python_method
     def _build_voice_tab(self, w: float, h: float) -> NSTabViewItem:
@@ -1046,6 +1099,29 @@ class SettingsWindowController(NSObject):
         self._custom_prompt_label.setHidden_(hidden)
         self._custom_prompt_scroll.setHidden_(hidden)
         self._custom_prompt_hint.setHidden_(hidden)
+
+    def downloadModelFromSettings_(self, sender) -> None:
+        model_key = str(sender.representedObject())
+        diag("settings_download_model", model=model_key)
+        from whisperkey_mac import model_manager
+
+        def _on_done(path):
+            from whisperkey_mac.overlay import dispatch_to_main
+
+            dispatch_to_main(self._on_model_download_done, model_key, path)
+
+        model_manager.download_model_async(model_key, on_done=_on_done)
+        sender.setTitle_("⏳")
+        sender.setEnabled_(False)
+
+    @objc.python_method
+    def _on_model_download_done(self, model_key, path) -> None:
+        if path:
+            diag("settings_model_download_success", model=model_key)
+        else:
+            diag("settings_model_download_failed", model=model_key)
+        # Refresh the model tab by rebuilding it (simplest approach)
+        # The user can switch models from the General tab popup or menu bar
 
     # ── Widget factory helpers ─────────────────────────────────────────────────
     # @objc.python_method marks these as pure-Python so PyObjC doesn't try to
