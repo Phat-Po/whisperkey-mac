@@ -176,27 +176,71 @@ def download_model(
     diag("model_download_start", model_size=model_size, repo=info["repo"])
     start_time = time.monotonic()
 
+    # Accumulator for cross-file progress (huggingface_hub creates one tqdm per file)
+    _bytes_accumulated = [0]
+
     try:
         from huggingface_hub import snapshot_download
-        from tqdm.auto import tqdm as _BaseTqdm
+        from tqdm.std import tqdm as _BaseTqdm
 
-        # Subclass tqdm to report progress to our callback while suppressing console output
+        # Subclass tqdm to report cumulative progress across all files.
+        # huggingface_hub passes disable=True based on log level — we override
+        # it to False so update() actually increments self.n.
+        # We also strip unknown kwargs (like 'name') that tqdm.std doesn't accept.
         class _ProgressTqdm(_BaseTqdm):
-            """tqdm subclass that reports progress to our callback."""
+            """tqdm subclass that accumulates progress across multiple files."""
 
             def __init__(self, *args, **kwargs):
+                kwargs.pop("name", None)  # huggingface_hub passes this; tqdm doesn't accept it
                 kwargs["file"] = open("/dev/null", "w")  # suppress console output
+                kwargs["disable"] = False  # force enable so update() works
                 super().__init__(*args, **kwargs)
+                self._prev_n = 0
+                self._last_report_time = 0.0
+                self._last_report_pct = -1
 
             def update(self, n=1):
                 super().update(n)
+                delta = self.n - self._prev_n
+                self._prev_n = self.n
+                if delta > 0:
+                    _bytes_accumulated[0] += delta
+
+                # Throttle: report at most once per second or every 1% change
+                now = time.monotonic()
+                total = info["size_bytes"]
+                done = min(_bytes_accumulated[0], total)
+                elapsed = now - start_time
+                pct = int(done * 100 / total) if total > 0 else 0
+
+                if now - self._last_report_time < 1.0 and pct == self._last_report_pct:
+                    return
+                self._last_report_time = now
+                self._last_report_pct = pct
+
+                with _download_lock:
+                    if _current_download:
+                        _current_download.bytes_done = done
+                        _current_download.elapsed_s = elapsed
+                if progress_cb:
+                    progress_cb(done, total, elapsed)
+
+            def close(self):
+                delta = self.n - self._prev_n
+                if delta > 0:
+                    _bytes_accumulated[0] += delta
+                    self._prev_n = self.n
+                # Always report on close
+                total = info["size_bytes"]
+                done = min(_bytes_accumulated[0], total)
                 elapsed = time.monotonic() - start_time
                 with _download_lock:
                     if _current_download:
-                        _current_download.bytes_done = self.n
+                        _current_download.bytes_done = done
                         _current_download.elapsed_s = elapsed
                 if progress_cb:
-                    progress_cb(self.n, self.total or 0, elapsed)
+                    progress_cb(done, total, elapsed)
+                super().close()
 
         local_path = snapshot_download(
             repo_id=info["repo"],
