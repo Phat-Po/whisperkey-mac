@@ -33,6 +33,22 @@ _REQUEST_HEADERS = {
 }
 
 
+def _github_token() -> str | None:
+    """Return a GitHub personal-access token if gh CLI is authenticated."""
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5.0,
+        )
+        token = result.stdout.strip()
+        return token or None
+    except Exception:
+        return None
+
+
 @dataclass(frozen=True)
 class UpdateInfo:
     version: str
@@ -65,7 +81,11 @@ def select_zip_asset(assets: list[dict]) -> str | None:
 
 def fetch_latest_release(timeout_s: float = 10.0) -> UpdateInfo | None:
     try:
-        request = urllib.request.Request(GITHUB_API_LATEST, headers=_REQUEST_HEADERS)
+        headers = dict(_REQUEST_HEADERS)
+        token = _github_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(GITHUB_API_LATEST, headers=headers)
         with urllib.request.urlopen(request, timeout=timeout_s) as response:
             data = json.load(response)
     except Exception as exc:
