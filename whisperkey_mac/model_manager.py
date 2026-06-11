@@ -178,59 +178,25 @@ def download_model(
 
     try:
         from huggingface_hub import snapshot_download
-        import huggingface_hub.constants as hf_constants
+        from tqdm.auto import tqdm as _BaseTqdm
 
-        # Use a custom tqdm class that reports progress to our callback
-        class _ProgressTqdm:
-            """Minimal tqdm-compatible wrapper that reports to our callback."""
+        # Subclass tqdm to report progress to our callback while suppressing console output
+        class _ProgressTqdm(_BaseTqdm):
+            """tqdm subclass that reports progress to our callback."""
 
             def __init__(self, *args, **kwargs):
-                self._total = kwargs.get("total", 0) or 0
-                self._n = 0
-                self._start = time.monotonic()
-                self._desc = kwargs.get("desc", "")
+                kwargs["file"] = open("/dev/null", "w")  # suppress console output
+                super().__init__(*args, **kwargs)
 
-            def update(self, n):
-                self._n += n
+            def update(self, n=1):
+                super().update(n)
                 elapsed = time.monotonic() - start_time
                 with _download_lock:
                     if _current_download:
-                        _current_download.bytes_done = self._n
+                        _current_download.bytes_done = self.n
                         _current_download.elapsed_s = elapsed
                 if progress_cb:
-                    progress_cb(self._n, self._total, elapsed)
-
-            def close(self):
-                pass
-
-            def set_description(self, desc, refresh=True):
-                self._desc = desc
-
-            def refresh(self):
-                pass
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                self.close()
-
-            # tqdm compatibility
-            @property
-            def n(self):
-                return self._n
-
-            @n.setter
-            def n(self, value):
-                self._n = value
-
-            @property
-            def total(self):
-                return self._total
-
-            disable = False
-            pos = 0
-            leave = True
+                    progress_cb(self.n, self.total or 0, elapsed)
 
         local_path = snapshot_download(
             repo_id=info["repo"],
@@ -248,7 +214,11 @@ def download_model(
         return local_path
 
     except Exception as exc:
-        diag("model_download_failed", model_size=model_size, error_type=type(exc).__name__)
+        import traceback
+
+        diag("model_download_failed", model_size=model_size, error_type=type(exc).__name__, error=str(exc)[:200])
+        print(f"[whisperkey] Model download failed: {exc}")
+        traceback.print_exc()
         with _download_lock:
             if _current_download and _current_download.model_size == model_size:
                 _current_download.finished = True

@@ -675,23 +675,24 @@ class SettingsWindowController(NSObject):
         lang = getattr(self._config, "ui_language", "en")
         current_model = getattr(self._config, "model_size", "small")
 
-        self._lbl(view, _t("model_tab_current", lang, model=current_model), 20, y)
+        # Current model label
+        self._model_current_label = self._lbl(
+            view, _t("model_tab_current", lang, model=current_model), 20, y
+        )
         y -= 40
 
-        # Model radio buttons with status
-        self._model_radio_items = {}
+        # Model list with status (labels, not radio buttons)
+        self._model_download_buttons = {}
         for model_key in model_manager.MODEL_ORDER:
             info = model_manager.MODEL_CATALOG[model_key]
             cached = model_manager.is_model_cached(model_key)
-            status = "✓" if cached else "📥"
+            is_current = model_key == current_model
 
-            radio = NSButton.alloc().initWithFrame_(NSMakeRect(20.0, y, 300.0, 22.0))
-            radio.setButtonType_(6)  # NSRadioButton
-            radio.setTitle_(f"{model_key}  ({info['size_label']})  {status}")
-            radio.setState_(1 if model_key == current_model else 0)
-            radio.setRepresentedObject_(model_key)
-            view.addSubview_(radio)
-            self._model_radio_items[model_key] = radio
+            # Status icon + model name + size
+            prefix = "→ " if is_current else "   "
+            status = "✓ downloaded" if cached else "✗ not downloaded"
+            label_text = f"{prefix}{model_key}  ({info['size_label']})  {status}"
+            self._lbl(view, label_text, 20, y, width=300)
 
             # Download button for uncached models
             if not cached:
@@ -702,11 +703,17 @@ class SettingsWindowController(NSObject):
                 dl_btn.setAction_("downloadModelFromSettings:")
                 dl_btn.setRepresentedObject_(model_key)
                 view.addSubview_(dl_btn)
+                self._model_download_buttons[model_key] = dl_btn
 
-            y -= 30
+            y -= 28
+
+        # Download progress label (hidden by default)
+        y -= 10
+        self._model_dl_progress = self._lbl(view, "", 20, y, width=380)
+        self._model_dl_progress.setHidden_(True)
 
         # Cache info
-        y -= 20
+        y -= 30
         total = model_manager.cache_total_bytes()
         self._lbl(view, _t("model_tab_cache_size", lang, size=model_manager.format_bytes(total)), 20, y)
         y -= 24
@@ -1104,15 +1111,58 @@ class SettingsWindowController(NSObject):
         model_key = str(sender.representedObject())
         diag("settings_download_model", model=model_key)
         from whisperkey_mac import model_manager
+        from whisperkey_mac.i18n import t as _t
+
+        lang = getattr(self._config, "ui_language", "en")
+        info = model_manager.MODEL_CATALOG.get(model_key, {})
+        size_label = info.get("size_label", "")
+
+        # Disable button and show progress
+        sender.setTitle_("⏳")
+        sender.setEnabled_(False)
+        if hasattr(self, "_model_dl_progress") and self._model_dl_progress:
+            self._model_dl_progress.setHidden_(False)
+            self._model_dl_progress.setStringValue_(
+                f"Downloading {model_key} ({size_label})…"
+            )
+
+        def _on_progress(bytes_done, bytes_total, elapsed):
+            from whisperkey_mac.overlay import dispatch_to_main
+
+            def _update():
+                if hasattr(self, "_model_dl_progress") and self._model_dl_progress:
+                    if bytes_total > 0:
+                        pct = int(bytes_done * 100 / bytes_total)
+                        done_mb = bytes_done / (1024 * 1024)
+                        total_mb = bytes_total / (1024 * 1024)
+                        eta = model_manager.estimate_eta(bytes_done, bytes_total, elapsed) or "…"
+                        self._model_dl_progress.setStringValue_(
+                            f"Downloading {model_key}… {pct}% ({done_mb:.0f}/{total_mb:.0f} MB) ETA: {eta}"
+                        )
+                    else:
+                        self._model_dl_progress.setStringValue_(
+                            f"Downloading {model_key}…"
+                        )
+
+            dispatch_to_main(_update)
 
         def _on_done(path):
             from whisperkey_mac.overlay import dispatch_to_main
 
-            dispatch_to_main(self._on_model_download_done, model_key, path)
+            def _finish():
+                if hasattr(self, "_model_dl_progress") and self._model_dl_progress:
+                    if path:
+                        self._model_dl_progress.setStringValue_(f"✓ {model_key} downloaded successfully")
+                    else:
+                        self._model_dl_progress.setStringValue_(f"✗ {model_key} download failed")
+                        sender.setTitle_(_t("model_tab_download_btn", lang, model=model_key))
+                        sender.setEnabled_(True)
 
-        model_manager.download_model_async(model_key, on_done=_on_done)
-        sender.setTitle_("⏳")
-        sender.setEnabled_(False)
+            dispatch_to_main(_finish)
+
+        model_manager.download_model_async(
+            model_key, on_done=_on_done, progress_cb=_on_progress
+        )
 
     @objc.python_method
     def _on_model_download_done(self, model_key, path) -> None:
