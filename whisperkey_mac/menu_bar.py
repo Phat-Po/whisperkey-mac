@@ -91,14 +91,16 @@ def status_image_for_state_and_mode(is_running: bool, mode: str):
     return image
 
 
-def build_menu_bar_controller(service, *, open_settings, open_onboarding=None):
-    return MenuBarController.alloc().initWithService_openSettings_openOnboarding_(
-        service, open_settings, open_onboarding
+def build_menu_bar_controller(service, *, open_settings, open_onboarding=None, check_for_updates=None):
+    return MenuBarController.alloc().initWithService_openSettings_openOnboarding_checkForUpdates_(
+        service, open_settings, open_onboarding, check_for_updates
     )
 
 
 class MenuBarController(NSObject):
-    def initWithService_openSettings_openOnboarding_(self, service, open_settings, open_onboarding):
+    def initWithService_openSettings_openOnboarding_checkForUpdates_(
+        self, service, open_settings, open_onboarding, check_for_updates
+    ):
         self = objc.super(MenuBarController, self).init()
         if self is None:
             return None
@@ -106,6 +108,7 @@ class MenuBarController(NSObject):
         self._service = service
         self._open_settings = open_settings
         self._open_onboarding = open_onboarding
+        self._check_for_updates = check_for_updates
         self._status_item = None
         self._status_line_item = None
         self._toggle_service_item = None
@@ -187,6 +190,14 @@ class MenuBarController(NSObject):
         log_item.setTarget_(self)
         menu.addItem_(log_item)
 
+        update_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            t("menu_check_updates", self._lang),
+            "checkUpdates:",
+            "",
+        )
+        update_item.setTarget_(self)
+        menu.addItem_(update_item)
+
         menu.addItem_(NSMenuItem.separatorItem())
 
         quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit WhisperKey", "quitApp:", "")
@@ -232,6 +243,14 @@ class MenuBarController(NSObject):
         self._service.set_online_prompt_mode(mode)
         self.refresh()
         self._rebuild_mode_submenu()
+
+    def checkUpdates_(self, _sender) -> None:
+        diag("menu_check_updates")
+        if self._check_for_updates is None:
+            return
+        from whisperkey_mac.overlay import dispatch_to_main
+
+        dispatch_to_main(self._check_for_updates)
 
     def openDiagLog_(self, _sender) -> None:
         from AppKit import NSWorkspace

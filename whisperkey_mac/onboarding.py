@@ -168,7 +168,7 @@ class OnboardingWindowController(NSObject):
 
     def _build_window(self) -> None:
         lang = self._lang
-        rect = NSMakeRect(0, 0, 560, 330)
+        rect = NSMakeRect(0, 0, 560, 366)
         style = NSTitledWindowMask | NSClosableWindowMask
         window = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
             rect, style, NSBackingStoreBuffered, False
@@ -180,10 +180,10 @@ class OnboardingWindowController(NSObject):
         content = window.contentView()
 
         content.addSubview_(_label(
-            t("onboarding_header", lang), NSMakeRect(24, 288, 512, 24), bold=True, size=15.0,
+            t("onboarding_header", lang), NSMakeRect(24, 324, 512, 24), bold=True, size=15.0,
         ))
         content.addSubview_(_label(
-            t("onboarding_sub", lang), NSMakeRect(24, 252, 512, 32), size=11.0, secondary=True,
+            t("onboarding_sub", lang), NSMakeRect(24, 288, 512, 32), size=11.0, secondary=True,
         ))
 
         self._rows = {}
@@ -195,7 +195,7 @@ class OnboardingWindowController(NSObject):
             ("microphone", "onboarding_microphone", "onboarding_microphone_desc",
              "requestMicrophone:", t("onboarding_request_mic", lang)),
         ]
-        y = 200
+        y = 236
         for key, name_key, desc_key, action, button_title in specs:
             status = _label("…", NSMakeRect(24, y + 10, 30, 20), size=14.0)
             content.addSubview_(status)
@@ -217,11 +217,19 @@ class OnboardingWindowController(NSObject):
             y -= 56
 
         self._footer = _label(
-            t("onboarding_restart_hint", lang), NSMakeRect(24, 18, 300, 32), size=11.0, secondary=True,
+            t("onboarding_restart_hint", lang), NSMakeRect(24, 52, 512, 16), size=11.0, secondary=True,
         )
         content.addSubview_(self._footer)
 
-        self._restart_button = NSButton.alloc().initWithFrame_(NSMakeRect(330, 14, 206, 32))
+        reset_button = NSButton.alloc().initWithFrame_(NSMakeRect(24, 10, 170, 30))
+        reset_button.setTitle_(t("onboarding_reset_tcc", lang))
+        reset_button.setBezelStyle_(1)
+        reset_button.setTarget_(self)
+        reset_button.setAction_("resetPermissions:")
+        reset_button.setToolTip_(t("onboarding_reset_tcc_hint", lang))
+        content.addSubview_(reset_button)
+
+        self._restart_button = NSButton.alloc().initWithFrame_(NSMakeRect(330, 10, 206, 32))
         self._restart_button.setTitle_(t("onboarding_restart", lang))
         self._restart_button.setBezelStyle_(1)
         self._restart_button.setKeyEquivalent_("\r")
@@ -295,6 +303,13 @@ class OnboardingWindowController(NSObject):
         diag("onboarding_grant_input_monitoring")
         permissions.request_input_monitoring()
         permissions.open_settings_pane("input_monitoring")
+
+    def resetPermissions_(self, _sender) -> None:
+        """Manual fallback for stale TCC records (toggle ON but still denied)."""
+        diag("onboarding_reset_tcc_clicked")
+        self._mic_requested = False
+        permissions.reset_tcc_permissions()
+        self._refresh_statuses()
 
     def requestMicrophone_(self, _sender) -> None:
         diag("onboarding_request_microphone")

@@ -49,7 +49,7 @@ class App:
         lang = cfg.ui_language
         _ = lambda k: t(k, lang)
 
-        from whisperkey_mac import onboarding
+        from whisperkey_mac import onboarding, permissions
 
         if onboarding.is_frozen():
             if onboarding.maybe_offer_move_to_applications(
@@ -57,6 +57,12 @@ class App:
             ):
                 diag("app_relaunching_from_applications")
                 return
+            bundle_path = onboarding.app_bundle_path()
+            if bundle_path:
+                # Signature changed since last run (e.g. app update) with
+                # permissions denied → old TCC records are stale; clear them
+                # so onboarding re-registers fresh grants.
+                permissions.auto_reset_stale_grants(bundle_path)
 
         _sig_name_holder: list[str] = []
 
@@ -92,13 +98,14 @@ class App:
             self._service,
             open_settings=self.open_settings,
             open_onboarding=self.open_onboarding,
+            check_for_updates=self.check_for_updates_interactive,
         )
 
-        from whisperkey_mac import permissions
-
-        if onboarding.is_frozen() and not permissions.required_granted():
-            diag("app_permissions_missing_at_start")
-            callLater(0.6, self.open_onboarding)
+        if onboarding.is_frozen():
+            if not permissions.required_granted():
+                diag("app_permissions_missing_at_start")
+                callLater(0.6, self.open_onboarding)
+            callLater(15.0, self._auto_check_updates)
 
         diag("app_run_enter")
         app.run()
@@ -169,6 +176,130 @@ class App:
 
         print(f"[whisperkey] {_t('onboarding_manual_restart', self._config.ui_language)}")
         os._exit(0)
+
+    # ── Self-update ───────────────────────────────────────────────────────
+
+    def check_for_updates_interactive(self) -> None:
+        self._check_for_updates(interactive=True)
+
+    def _auto_check_updates(self) -> None:
+        from whisperkey_mac import updater
+
+        if not updater.should_auto_check():
+            diag("update_auto_check_skipped")
+            return
+        updater.record_auto_check()
+        self._check_for_updates(interactive=False)
+
+    def _check_for_updates(self, interactive: bool) -> None:
+        diag("update_check_start", interactive=interactive)
+        import threading
+
+        from whisperkey_mac import updater
+
+        def _worker() -> None:
+            info = updater.fetch_latest_release()
+            from whisperkey_mac.overlay import dispatch_to_main
+
+            dispatch_to_main(self._handle_update_result, info, interactive)
+
+        threading.Thread(target=_worker, name="WhisperKeyUpdateCheck", daemon=True).start()
+
+    def _handle_update_result(self, info, interactive: bool) -> None:
+        from whisperkey_mac import app_version, updater
+        from whisperkey_mac.i18n import t as _t
+
+        lang = self._config.ui_language
+        current = app_version()
+        if info is None:
+            diag("update_check_no_result", interactive=interactive)
+            if interactive:
+                self._show_info_alert(
+                    _t("update_check_failed_title", lang),
+                    _t("update_check_failed_msg", lang),
+                )
+            return
+        if not updater.is_newer(info.version, current):
+            diag("update_check_up_to_date", current=current, latest=info.version)
+            if interactive:
+                self._show_info_alert(
+                    _t("update_none_title", lang),
+                    _t("update_none_msg", lang, current=current),
+                )
+            return
+        diag("update_check_found", current=current, latest=info.version)
+        self._offer_update(info, current)
+
+    def _offer_update(self, info, current: str) -> None:
+        from AppKit import NSAlert, NSAlertFirstButtonReturn, NSApp
+
+        from whisperkey_mac import updater
+        from whisperkey_mac.i18n import t as _t
+
+        lang = self._config.ui_language
+        NSApp().activateIgnoringOtherApps_(True)
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_(_t("update_available_title", lang, version=info.version))
+        message = _t("update_available_msg", lang, current=current)
+        notes = (info.notes or "").strip()
+        if notes:
+            message += "\n\n" + (notes[:400] + ("…" if len(notes) > 400 else ""))
+        alert.setInformativeText_(message)
+        alert.addButtonWithTitle_(_t("update_now", lang))
+        alert.addButtonWithTitle_(_t("update_view_page", lang))
+        alert.addButtonWithTitle_(_t("update_later", lang))
+        response = alert.runModal()
+        if response == NSAlertFirstButtonReturn:
+            self._start_update(info)
+        elif response == NSAlertFirstButtonReturn + 1:
+            updater.open_releases_page(info.html_url)
+
+    def _start_update(self, info) -> None:
+        import threading
+
+        from whisperkey_mac import updater
+        from whisperkey_mac.i18n import t as _t
+        from whisperkey_mac.onboarding import app_bundle_path
+        from whisperkey_mac.supervisor import notify
+
+        lang = self._config.ui_language
+        bundle = app_bundle_path()
+        if bundle is None:
+            # Dev (non-bundled) runs can't self-replace — open the page instead.
+            updater.open_releases_page(info.html_url)
+            return
+
+        diag("update_start", version=info.version)
+        notify("WhisperKey", _t("update_downloading", lang, version=info.version))
+
+        def _worker() -> None:
+            ok = updater.download_and_install(info, bundle)
+            from whisperkey_mac.overlay import dispatch_to_main
+
+            if ok:
+                dispatch_to_main(self._restart_app)
+            else:
+                dispatch_to_main(self._update_failed, info)
+
+        threading.Thread(target=_worker, name="WhisperKeyUpdateInstall", daemon=True).start()
+
+    def _update_failed(self, info) -> None:
+        from whisperkey_mac import updater
+        from whisperkey_mac.i18n import t as _t
+
+        lang = self._config.ui_language
+        updater.open_releases_page(info.html_url)
+        self._show_info_alert(_t("update_failed_title", lang), _t("update_failed_msg", lang))
+
+    def _show_info_alert(self, title: str, message: str) -> None:
+        from AppKit import NSAlert, NSApp
+
+        NSApp().activateIgnoringOtherApps_(True)
+        alert = NSAlert.alloc().init()
+        alert.setMessageText_(title)
+        alert.setInformativeText_(message)
+        alert.addButtonWithTitle_("OK")
+        alert.runModal()
 
     def open_settings(self) -> None:
         diag("app_open_settings_start")

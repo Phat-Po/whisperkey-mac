@@ -144,6 +144,22 @@ STRINGS: dict[str, dict[str, str]] = {
         "move_button": "移动到「应用程序」",
         "move_later": "暂不移动",
         "move_failed": "自动移动失败，请手动把 WhisperKey.app 拖到「应用程序」文件夹。",
+        "onboarding_reset_tcc": "重置权限记录",
+        "onboarding_reset_tcc_hint": "开关已开启但仍显示未授权时使用",
+
+        # ── Updates ───────────────────────────────────────────────────────────
+        "update_available_title": "发现新版本 v{version}",
+        "update_available_msg": "当前版本 v{current}。点「立即更新」会自动下载并重启 WhisperKey，已授予的权限保持有效。",
+        "update_now": "立即更新",
+        "update_later": "稍后",
+        "update_view_page": "查看发布页",
+        "update_none_title": "已是最新版本",
+        "update_none_msg": "当前版本 v{current} 已是最新。",
+        "update_check_failed_title": "检查更新失败",
+        "update_check_failed_msg": "无法连接 GitHub，请稍后再试，或手动访问发布页。",
+        "update_downloading": "正在下载更新 v{version}，完成后会自动重启…",
+        "update_failed_title": "更新失败",
+        "update_failed_msg": "已为你打开发布页，可手动下载 DMG 安装（权限不会丢失）。",
 
         # ── Menu bar ──────────────────────────────────────────────────────────
         "menu_fix_permissions": "⚠️ 权限未授予 — 点击修复…",
@@ -153,6 +169,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu_mode_cleanup": "口语清理",
         "menu_mode_custom": "自定义",
         "menu_open_log": "打开诊断日志",
+        "menu_check_updates": "检查更新…",
         "menu_settings": "设置…",
         "menu_quit": "退出 WhisperKey",
         "menu_start_service": "启动服务",
@@ -312,6 +329,22 @@ STRINGS: dict[str, dict[str, str]] = {
         "move_button": "Move to Applications",
         "move_later": "Not now",
         "move_failed": "Automatic move failed. Please drag WhisperKey.app into the Applications folder manually.",
+        "onboarding_reset_tcc": "Reset permission records",
+        "onboarding_reset_tcc_hint": "Use when toggles are ON but still shown as not granted",
+
+        # ── Updates ───────────────────────────────────────────────────────────
+        "update_available_title": "Update available: v{version}",
+        "update_available_msg": "You have v{current}. \"Update Now\" downloads and restarts WhisperKey automatically — granted permissions are kept.",
+        "update_now": "Update Now",
+        "update_later": "Later",
+        "update_view_page": "View Release Page",
+        "update_none_title": "You're up to date",
+        "update_none_msg": "v{current} is the latest version.",
+        "update_check_failed_title": "Update check failed",
+        "update_check_failed_msg": "Could not reach GitHub. Try again later or visit the releases page.",
+        "update_downloading": "Downloading v{version} — WhisperKey will restart automatically…",
+        "update_failed_title": "Update failed",
+        "update_failed_msg": "The releases page has been opened — you can install the DMG manually (permissions are kept).",
 
         # ── Menu bar ──────────────────────────────────────────────────────────
         "menu_fix_permissions": "⚠️ Permissions missing — click to fix…",
@@ -321,6 +354,7 @@ STRINGS: dict[str, dict[str, str]] = {
         "menu_mode_cleanup": "Voice Cleanup",
         "menu_mode_custom": "Custom",
         "menu_open_log": "Open Diagnostics Log",
+        "menu_check_updates": "Check for Updates…",
         "menu_settings": "Settings…",
         "menu_quit": "Quit WhisperKey",
         "menu_start_service": "Start Service",
