@@ -889,6 +889,16 @@ class OverlayStateMachine:
             self._renderer.show_result(gen, text)
         callLater(display_duration_s, lambda: self._auto_dismiss(gen, dismiss_duration_s))
 
+    def show_streaming_text(self, text: str) -> None:
+        """Show partial streaming ASR text on the overlay while recording."""
+        if self._state != OverlayState.RECORDING:
+            return
+        if self._label is not None:
+            self._label.setStringValue_(text)
+        if self._sublabel is not None:
+            self._sublabel.setStringValue_("实时识别中…")
+        self._show_text()
+
     def show_mode_switch(self, label: str) -> None:
         if not self._transition(OverlayState.MODE_SWITCH):
             return

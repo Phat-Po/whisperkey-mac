@@ -26,6 +26,8 @@ class AudioRecorder:
         self._stream: sd.InputStream | None = None
         self._recording = False
         self._smoothed_level: float = 0.0
+        # Optional callback for streaming: called with raw PCM bytes (int16, mono)
+        self.on_chunk: "Callable[[bytes], None] | None" = None
 
     @property
     def is_recording(self) -> bool:
@@ -110,3 +112,13 @@ class AudioRecorder:
                 self._frames.append(indata.copy())
                 rms = float(np.sqrt(np.mean(indata ** 2)))
                 self._smoothed_level = 0.3 * rms + 0.7 * self._smoothed_level
+
+        # Stream PCM chunk to Doubao ASR if callback is set
+        chunk_cb = self.on_chunk
+        if chunk_cb is not None and self._recording:
+            try:
+                # Convert float32 [-1.0, 1.0] to int16 PCM
+                pcm = (indata * 32767).astype(np.int16).tobytes()
+                chunk_cb(pcm)
+            except Exception:
+                pass  # Never let streaming errors break recording

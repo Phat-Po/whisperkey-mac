@@ -33,6 +33,7 @@ MODE_MENU_LABELS = {
     "asr_correction": "ASR Correction",
     "voice_cleanup": "Voice Cleanup",
     "custom": "Custom",
+    "streaming": "Real-time Streaming",
 }
 
 MODE_I18N_KEYS = {
@@ -40,6 +41,7 @@ MODE_I18N_KEYS = {
     "asr_correction": "menu_mode_asr",
     "voice_cleanup": "menu_mode_cleanup",
     "custom": "menu_mode_custom",
+    "streaming": "menu_mode_streaming",
 }
 
 
@@ -47,6 +49,9 @@ def available_modes(config) -> list[str]:
     modes = ["disabled", "asr_correction", "voice_cleanup"]
     if getattr(config, "online_prompt_custom_text", "").strip():
         modes.append("custom")
+    # Show streaming mode only if Doubao ASR is configured
+    if getattr(config, "doubao_app_id", "") and getattr(config, "doubao_access_key", ""):
+        modes.append("streaming")
     return modes
 
 

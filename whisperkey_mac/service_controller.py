@@ -294,7 +294,7 @@ class ServiceController:
     def set_online_prompt_mode(self, mode: str) -> str:
         """Directly select a processing mode (menu path, vs. hotkey cycling)."""
         current_mode = getattr(self._config, "online_prompt_mode", "disabled")
-        if mode not in {"disabled", "asr_correction", "voice_cleanup", "custom"}:
+        if mode not in {"disabled", "asr_correction", "voice_cleanup", "custom", "streaming"}:
             return current_mode
         if mode == "custom" and not getattr(self._config, "online_prompt_custom_text", "").strip():
             return current_mode
@@ -382,6 +382,93 @@ class ServiceController:
             progress_cb=on_progress,
         )
 
+    # ── Streaming ASR (Doubao) ──────────────────────────────────────────────
+
+    def _start_streaming_asr(self) -> None:
+        """Initialize and start Doubao streaming ASR, attach to recorder."""
+        from whisperkey_mac.doubao_asr import DoubaoConfig, DoubaoStreamingASR, is_configured
+
+        doubao_cfg = DoubaoConfig(
+            app_id=getattr(self._config, "doubao_app_id", ""),
+            access_key=getattr(self._config, "doubao_access_key", ""),
+            cluster=getattr(self._config, "doubao_cluster", "volc.bigasr.sauc.duration"),
+        )
+        if not is_configured(doubao_cfg):
+            diag("streaming_asr_not_configured")
+            return
+
+        self._streaming_asr = DoubaoStreamingASR(doubao_cfg)
+        self._streaming_text = ""
+
+        def _on_partial(text):
+            self._streaming_text = text
+            if hasattr(self, "_overlay") and self._overlay is not None:
+                from whisperkey_mac.overlay import dispatch_to_main
+
+                dispatch_to_main(self._overlay.show_streaming_text, text)
+
+        def _on_final(text):
+            self._streaming_text = text
+
+        def _on_error(msg):
+            diag("streaming_asr_error", error=msg)
+
+        self._streaming_asr.on_partial = _on_partial
+        self._streaming_asr.on_final = _on_final
+        self._streaming_asr.on_error = _on_error
+
+        if self._streaming_asr.start():
+            # Attach chunk callback to recorder
+            self._recorder.on_chunk = self._streaming_asr.feed_audio
+            diag("streaming_asr_started")
+        else:
+            diag("streaming_asr_start_failed")
+            self._streaming_asr = None
+
+    def _stop_streaming_asr(self) -> str:
+        """Stop Doubao streaming ASR and return the final text."""
+        asr = getattr(self, "_streaming_asr", None)
+        self._recorder.on_chunk = None
+        self._streaming_asr = None
+
+        if asr is None:
+            return ""
+
+        asr.finish()
+        final_text = asr.stop(timeout_s=5.0)
+        diag("streaming_asr_stopped", text_len=len(final_text))
+        return final_text
+
+    def _inject_streaming_result(self, text: str, target_bundle_id: str | None = None) -> None:
+        """Inject the final streaming ASR result (skip Whisper + online correction)."""
+        cfg = self._config
+        lang = cfg.ui_language
+
+        word_fixed = _apply_word_replacements(text, getattr(cfg, "word_replacements", {}))
+        if word_fixed != text:
+            print(f"[whisperkey] word replacements applied")
+
+        if not hasattr(self, "_overlay") or self._overlay is None:
+            self._output.inject(word_fixed, target_bundle_id=target_bundle_id)
+            return
+
+        from whisperkey_mac.overlay import dispatch_to_main
+
+        print(f"[whisperkey] → {word_fixed!r}")
+        in_text_field = self._should_attempt_direct_paste()
+
+        if in_text_field:
+            result = self._output.inject(word_fixed, target_bundle_id=target_bundle_id)
+            if result in {"inserted", "applescript"}:
+                dispatch_to_main(self._overlay.show_result, word_fixed, "已输入", 1.2, 0.25)
+            else:
+                dispatch_to_main(self._overlay.show_result, word_fixed, "已复制到剪贴板", 3.0, 0.4)
+        else:
+            import pyperclip
+
+            pyperclip.copy(word_fixed)
+            dispatch_to_main(self._overlay.show_result, word_fixed, "已复制到剪贴板", 3.0, 0.4)
+
     def _start_recording(self) -> None:
         if not hasattr(self, "_overlay") or self._overlay is None:
             diag("recording_start_ignored", reason="overlay_missing")
@@ -395,6 +482,11 @@ class ServiceController:
         from whisperkey_mac.overlay import dispatch_to_main
 
         dispatch_to_main(self._overlay.show_recording)
+
+        # Start streaming ASR if in streaming mode
+        if getattr(self._config, "online_prompt_mode", "") == "streaming":
+            self._start_streaming_asr()
+
         self._recorder.start()
         diag("recording_started")
 
@@ -460,9 +552,23 @@ class ServiceController:
     def _stop_and_transcribe_worker(self, target_bundle_id: str | None = None) -> None:
         diag("recording_stop_start")
         try:
-            recording = self._recorder.stop_and_save()
             cfg = self._config
             lang = cfg.ui_language
+
+            # Streaming mode: use Doubao ASR result directly
+            if getattr(cfg, "online_prompt_mode", "") == "streaming" and getattr(self, "_streaming_asr", None) is not None:
+                self._recorder.cancel()  # discard audio (don't save to file)
+                text = self._stop_streaming_asr()
+                if text:
+                    diag("streaming_transcribe_result", text_len=len(text))
+                    self._inject_streaming_result(text, target_bundle_id)
+                else:
+                    diag("streaming_transcribe_no_result")
+                    self._hide_overlay_after_cancel()
+                return
+
+            # Normal mode: Whisper transcription
+            recording = self._recorder.stop_and_save()
 
             if recording is None:
                 diag("recording_stop_too_short")

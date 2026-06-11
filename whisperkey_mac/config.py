@@ -9,7 +9,7 @@ from pathlib import Path
 
 CONFIG_PATH = Path.home() / ".config" / "whisperkey" / "config.json"
 
-VALID_PROMPT_MODES = {"disabled", "asr_correction", "custom", "voice_cleanup"}
+VALID_PROMPT_MODES = {"disabled", "asr_correction", "custom", "voice_cleanup", "streaming"}
 DEFAULT_MODE_CYCLE_TARGETS = ["asr_correction", "voice_cleanup"]
 
 
@@ -64,6 +64,11 @@ class AppConfig:
     online_correct_min_cjk_ratio: float = 0.35
     word_replacements: dict = field(default_factory=dict)
     launch_at_login: bool = False
+
+    # ── Doubao streaming ASR ─────────────────────────────────────────────────
+    doubao_app_id: str = ""
+    doubao_access_key: str = ""
+    doubao_cluster: str = "volc.bigasr.sauc.duration"
 
     # ── Legacy ────────────────────────────────────────────────────────────────
     record_button: str = "x1"
