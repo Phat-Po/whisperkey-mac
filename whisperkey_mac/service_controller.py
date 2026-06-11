@@ -291,6 +291,29 @@ class ServiceController:
         self._notify_status_changed()
         return next_mode
 
+    def set_online_prompt_mode(self, mode: str) -> str:
+        """Directly select a processing mode (menu path, vs. hotkey cycling)."""
+        current_mode = getattr(self._config, "online_prompt_mode", "disabled")
+        if mode not in {"disabled", "asr_correction", "voice_cleanup", "custom"}:
+            return current_mode
+        if mode == "custom" and not getattr(self._config, "online_prompt_custom_text", "").strip():
+            return current_mode
+        with self._activity_lock:
+            processing_busy = self._processing_busy
+        if processing_busy or self._recorder.is_recording:
+            diag("online_prompt_mode_set_ignored", mode=mode, processing_busy=processing_busy)
+            self.notify_mode_switch_busy()
+            return current_mode
+        if mode == current_mode:
+            return current_mode
+
+        self._config.online_prompt_mode = mode
+        self._config.online_correct_enabled = mode != "disabled"
+        save_config(self._config)
+        self.notify_mode_switch(mode)
+        self._notify_status_changed()
+        return mode
+
     def notify_mode_switch_busy(self) -> None:
         diag("online_prompt_mode_switch_busy")
         if not self._service_running or self._overlay is None:

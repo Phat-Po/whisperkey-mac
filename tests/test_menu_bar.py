@@ -52,3 +52,22 @@ def test_refresh_from_service_dispatches_to_main_thread():
         controller._refresh_from_service()
 
     mock_dispatch.assert_called_once_with(controller.refresh)
+
+
+def test_available_modes_includes_custom_only_with_prompt_text():
+    from types import SimpleNamespace
+
+    from whisperkey_mac.menu_bar import available_modes
+
+    without_custom = SimpleNamespace(online_prompt_custom_text="")
+    assert available_modes(without_custom) == ["disabled", "asr_correction", "voice_cleanup"]
+
+    with_custom = SimpleNamespace(online_prompt_custom_text="my prompt")
+    assert available_modes(with_custom) == ["disabled", "asr_correction", "voice_cleanup", "custom"]
+
+
+def test_app_version_returns_nonempty_string():
+    from whisperkey_mac import app_version
+
+    version = app_version()
+    assert isinstance(version, str) and version

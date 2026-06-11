@@ -35,6 +35,20 @@ MODE_MENU_LABELS = {
     "custom": "Custom",
 }
 
+MODE_I18N_KEYS = {
+    "disabled": "menu_mode_disabled",
+    "asr_correction": "menu_mode_asr",
+    "voice_cleanup": "menu_mode_cleanup",
+    "custom": "menu_mode_custom",
+}
+
+
+def available_modes(config) -> list[str]:
+    modes = ["disabled", "asr_correction", "voice_cleanup"]
+    if getattr(config, "online_prompt_custom_text", "").strip():
+        modes.append("custom")
+    return modes
+
 
 def button_title_for_state(is_running: bool) -> str:
     return "WK" if is_running else "WK·"
@@ -114,6 +128,14 @@ class MenuBarController(NSObject):
         menu = NSMenu.alloc().init()
         menu.setDelegate_(self)
 
+        from whisperkey_mac import app_version
+
+        version_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            f"WhisperKey v{app_version()}", None, ""
+        )
+        version_item.setEnabled_(False)
+        menu.addItem_(version_item)
+
         self._status_line_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Status: -", None, "")
         self._status_line_item.setEnabled_(False)
         menu.addItem_(self._status_line_item)
@@ -139,6 +161,14 @@ class MenuBarController(NSObject):
         self._toggle_service_item.setTarget_(self)
         menu.addItem_(self._toggle_service_item)
 
+        mode_parent_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            t("menu_mode", self._lang), None, ""
+        )
+        self._mode_menu = NSMenu.alloc().init()
+        mode_parent_item.setSubmenu_(self._mode_menu)
+        menu.addItem_(mode_parent_item)
+        self._rebuild_mode_submenu()
+
         menu.addItem_(NSMenuItem.separatorItem())
 
         settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
@@ -148,6 +178,14 @@ class MenuBarController(NSObject):
         )
         settings_item.setTarget_(self)
         menu.addItem_(settings_item)
+
+        log_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            t("menu_open_log", self._lang),
+            "openDiagLog:",
+            "",
+        )
+        log_item.setTarget_(self)
+        menu.addItem_(log_item)
 
         menu.addItem_(NSMenuItem.separatorItem())
 
@@ -168,6 +206,40 @@ class MenuBarController(NSObject):
 
     def menuWillOpen_(self, _menu) -> None:
         self._refresh_permission_item()
+        self._rebuild_mode_submenu()
+
+    def _rebuild_mode_submenu(self) -> None:
+        if getattr(self, "_mode_menu", None) is None:
+            return
+        from whisperkey_mac.i18n import t
+
+        current = getattr(self._service.config, "online_prompt_mode", "disabled")
+        self._mode_menu.removeAllItems()
+        for mode_key in available_modes(self._service.config):
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                t(MODE_I18N_KEYS[mode_key], self._lang),
+                "selectMode:",
+                "",
+            )
+            item.setTarget_(self)
+            item.setRepresentedObject_(mode_key)
+            item.setState_(1 if mode_key == current else 0)
+            self._mode_menu.addItem_(item)
+
+    def selectMode_(self, sender) -> None:
+        mode = str(sender.representedObject())
+        diag("menu_select_mode", mode=mode)
+        self._service.set_online_prompt_mode(mode)
+        self.refresh()
+        self._rebuild_mode_submenu()
+
+    def openDiagLog_(self, _sender) -> None:
+        from AppKit import NSWorkspace
+
+        from whisperkey_mac.diagnostics import DIAG_LOG_PATH
+
+        diag("menu_open_diag_log")
+        NSWorkspace.sharedWorkspace().openFile_(str(DIAG_LOG_PATH))
 
     def _refresh_permission_item(self) -> None:
         if self._perm_item is None:

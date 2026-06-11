@@ -566,3 +566,61 @@ def test_service_settings_hotkey_resume_does_not_start_stopped_service():
 
     service._hotkey.full_stop.assert_called_once_with()
     service._hotkey.start.assert_not_called()
+
+
+def _bare_mode_service(**config_kwargs):
+    service = ServiceController.__new__(ServiceController)
+    service._config = AppConfig(**config_kwargs)
+    service._recorder = unittest.mock.MagicMock()
+    service._recorder.is_recording = False
+    service._activity_lock = threading.Lock()
+    service._processing_busy = False
+    service._status_callbacks = [unittest.mock.MagicMock()]
+    service.notify_mode_switch = unittest.mock.MagicMock()
+    service.notify_mode_switch_busy = unittest.mock.MagicMock()
+    return service
+
+
+def test_set_online_prompt_mode_persists_selection():
+    service = _bare_mode_service(online_prompt_mode="disabled")
+
+    with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
+        result = service.set_online_prompt_mode("voice_cleanup")
+
+    assert result == "voice_cleanup"
+    assert service._config.online_prompt_mode == "voice_cleanup"
+    assert service._config.online_correct_enabled is True
+    mock_save.assert_called_once_with(service._config)
+    service.notify_mode_switch.assert_called_once_with("voice_cleanup")
+
+
+def test_set_online_prompt_mode_rejects_unknown_mode():
+    service = _bare_mode_service(online_prompt_mode="asr_correction")
+
+    with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
+        result = service.set_online_prompt_mode("nonsense")
+
+    assert result == "asr_correction"
+    mock_save.assert_not_called()
+
+
+def test_set_online_prompt_mode_rejects_custom_without_prompt_text():
+    service = _bare_mode_service(online_prompt_mode="asr_correction", online_prompt_custom_text="  ")
+
+    with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
+        result = service.set_online_prompt_mode("custom")
+
+    assert result == "asr_correction"
+    mock_save.assert_not_called()
+
+
+def test_set_online_prompt_mode_ignored_while_recording():
+    service = _bare_mode_service(online_prompt_mode="disabled")
+    service._recorder.is_recording = True
+
+    with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
+        result = service.set_online_prompt_mode("asr_correction")
+
+    assert result == "disabled"
+    mock_save.assert_not_called()
+    service.notify_mode_switch_busy.assert_called_once_with()
