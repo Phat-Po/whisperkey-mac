@@ -45,6 +45,7 @@ WhisperKey 以 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在�
 ### 🎙️ 语音输入
 - **按住说话** — 按住 Right Option ⌥ 录音，松开自动转录
 - **免持模式** — Right Option ⌥ + Right Command ⌘ 切换持续录音
+- **快捷键自愈** — macOS 重新授权、睡眠唤醒或 event tap 被系统关闭后，会自动重建监听器，无需完整重启 App
 - **90+ 语言** 支持，中英混合处理
 - **完全离线转录**（faster-whisper）— 首次下载模型后无需联网
 - **自动粘贴** 到当前应用
@@ -315,6 +316,7 @@ whisperkey help
 |---|---|
 | 快捷键无响应 | 检查**输入监控**权限 |
 | 免提快捷键无响应 | 确认只运行 `/Applications/WhisperKey.app`，再检查输入监控 + 辅助使用 |
+| 快捷键必须重启后才恢复 | 升级到 v3.0.2+；权限恢复或 event tap 反复失效后会自动重建监听器 |
 | 转录没粘贴 | 检查**辅助使用**权限 |
 | 后处理没生效 | 重跑 `whisperkey setup` 或设 `OPENAI_API_KEY`；确认 Settings → 语音 → Processing Mode |
 | 日志出现 `inject_path=applescript` | Electron/网页类应用的兼容路径，属预期 |

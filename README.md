@@ -45,6 +45,7 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 ### 🎙️ Core dictation
 - **Hold-to-talk** — hold Right Option ⌥ to record, release to transcribe
 - **Hands-free mode** — Right Option ⌥ + Right Command ⌘ toggles continuous recording
+- **Self-healing hotkey listener** — recovers after macOS re-authorization, sleep/wake, or disabled event taps without requiring a full app restart
 - **90+ languages** with Chinese/English mixed handling
 - **Fully offline STT** via faster-whisper — no internet after the first model download
 - **Auto-paste** directly into the active app
@@ -315,6 +316,7 @@ Automatically checks: process status · Accessibility · Input Monitoring · aud
 |---|---|
 | No response to hotkeys | Check **Input Monitoring** permission |
 | Hands-free hotkey does not respond | Make sure only `/Applications/WhisperKey.app` is running, then check Input Monitoring + Accessibility |
+| Hotkeys recover only after restart | Upgrade to v3.0.2+; the hotkey listener now rebuilds itself after permissions are restored or event taps are repeatedly disabled |
 | Transcription not pasting | Check **Accessibility** permission |
 | Post-processing not applying | Re-run `whisperkey setup` or set `OPENAI_API_KEY`; check Settings → Voice → Processing Mode |
 | `inject_path=applescript` in logs | Expected for Electron/web chat apps; it's the compatibility paste path |
