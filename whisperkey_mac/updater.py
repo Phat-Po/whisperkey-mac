@@ -108,6 +108,20 @@ def record_auto_check(
         pass
 
 
+_ALLOWED_DOWNLOAD_HOSTS = ("github.com", "objects.githubusercontent.com")
+
+
+def _validate_url(url: str) -> bool:
+    """Reject URLs that don't point to known GitHub download hosts."""
+    try:
+        from urllib.parse import urlparse
+
+        host = urlparse(url).hostname or ""
+        return any(host == h or host.endswith("." + h) for h in _ALLOWED_DOWNLOAD_HOSTS)
+    except Exception:
+        return False
+
+
 def download_and_install(info: UpdateInfo, bundle_path: str) -> bool:
     """Download the release zip and swap it over the installed bundle.
 
@@ -118,6 +132,10 @@ def download_and_install(info: UpdateInfo, bundle_path: str) -> bool:
     """
     if not info.zip_url:
         diag("update_install_no_asset", version=info.version)
+        return False
+
+    if not _validate_url(info.zip_url):
+        diag("update_install_url_rejected", url=info.zip_url)
         return False
 
     bundle = Path(bundle_path)
@@ -180,4 +198,7 @@ def download_and_install(info: UpdateInfo, bundle_path: str) -> bool:
 
 
 def open_releases_page(url: str | None = None) -> None:
-    subprocess.run(["open", url or RELEASES_URL], check=False)
+    target = url or RELEASES_URL
+    if not target.startswith("https://"):
+        target = RELEASES_URL
+    subprocess.run(["open", target], check=False)

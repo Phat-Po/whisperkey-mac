@@ -71,10 +71,28 @@ def move_decision(bundle_path: str, home: str | None = None) -> str:
     return "ok"
 
 
+def _is_whisperkey_bundle(path: str) -> bool:
+    """Check whether *path* contains a WhisperKey bundle (by bundle ID)."""
+    plist = os.path.join(path, "Contents", "Info.plist")
+    if not os.path.isfile(plist):
+        return False
+    try:
+        import plistlib
+
+        with open(plist, "rb") as f:
+            data = plistlib.load(f)
+        return data.get("CFBundleIdentifier") == "com.phatpo.whisperkey"
+    except Exception:
+        return False
+
+
 def perform_move(src: str, dst: str = APPLICATIONS_APP_PATH) -> str | None:
     """Copy the bundle into /Applications and clear quarantine. Returns dst or None."""
     try:
         if os.path.exists(dst):
+            if not _is_whisperkey_bundle(dst):
+                diag("move_to_applications_refused", dst=dst)
+                return None
             shutil.rmtree(dst)
         subprocess.run(["ditto", src, dst], check=True, capture_output=True, timeout=120.0)
         subprocess.run(
