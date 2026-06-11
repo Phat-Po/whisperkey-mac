@@ -13,9 +13,14 @@ from typing import TextIO
 
 FAULT_LOG_PATH = Path("/tmp/whisperkey-faulthandler.log")
 DIAG_LOG_PATH = Path("/tmp/whisperkey-diag.log")
+DIAG_LOG_MAX_BYTES = 10 * 1024 * 1024
+_DIAG_ROTATE_CHECK_EVERY = 500
+_METRICS_CACHE_TTL_S = 2.0
 
 _fault_log_file: TextIO | None = None
 _diag_log_file: TextIO | None = None
+_diag_write_count = 0
+_metrics_cache: tuple[float, dict[str, str]] | None = None
 _periodic_thread: threading.Thread | None = None
 _periodic_stop = threading.Event()
 _state_lock = threading.Lock()
@@ -59,13 +64,33 @@ def _ensure_diag_log() -> TextIO | None:
     global _diag_log_file
     if _diag_log_file is None:
         try:
+            _rotate_diag_log_if_oversized()
             _diag_log_file = DIAG_LOG_PATH.open("a", buffering=1)
         except OSError:
             pass
     return _diag_log_file
 
 
+def _rotate_diag_log_if_oversized() -> None:
+    """Cap the diag log: when it exceeds the limit, keep one .old generation."""
+    global _diag_log_file
+    try:
+        if not DIAG_LOG_PATH.exists() or DIAG_LOG_PATH.stat().st_size <= DIAG_LOG_MAX_BYTES:
+            return
+        if _diag_log_file is not None:
+            try:
+                _diag_log_file.close()
+            except OSError:
+                pass
+            _diag_log_file = None
+        DIAG_LOG_PATH.replace(DIAG_LOG_PATH.with_suffix(".log.old"))
+    except OSError:
+        pass
+
+
 def diag(event: str, **fields: object) -> None:
+    global _diag_write_count
+
     metrics = _collect_metrics()
     parts = [f"event={_clean(event)}"]
     parts.extend(
@@ -80,12 +105,16 @@ def diag(event: str, **fields: object) -> None:
         parts.append(f"{_clean(str(key))}={_clean(str(value))}")
     line = "[wkdiag] " + " ".join(parts)
     print(line, flush=True)
-    log_file = _ensure_diag_log()
-    if log_file is not None:
-        try:
-            log_file.write(line + "\n")
-        except OSError:
-            pass
+    with _state_lock:
+        _diag_write_count += 1
+        if _diag_write_count % _DIAG_ROTATE_CHECK_EVERY == 0:
+            _rotate_diag_log_if_oversized()
+        log_file = _ensure_diag_log()
+        if log_file is not None:
+            try:
+                log_file.write(line + "\n")
+            except OSError:
+                pass
 
 
 def _periodic_loop(interval_s: float, event: str) -> None:
@@ -94,6 +123,15 @@ def _periodic_loop(interval_s: float, event: str) -> None:
 
 
 def _collect_metrics() -> dict[str, str]:
+    # diag() runs on hot paths (tap callbacks, transcription threads), so the
+    # ps-based numbers are cached: at most one ps fork per TTL window.
+    global _metrics_cache
+
+    now = time.monotonic()
+    cached = _metrics_cache
+    if cached is not None and now - cached[0] < _METRICS_CACHE_TTL_S:
+        return cached[1]
+
     pid = os.getpid()
     rss_kb, cpu_pct, threads = _metrics_from_ps(pid)
     maxrss_kb = str(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
@@ -105,12 +143,14 @@ def _collect_metrics() -> dict[str, str]:
         except (TypeError, ValueError):
             rss_mb = "?"
 
-    return {
+    metrics = {
         "rss_mb": rss_mb,
         "cpu_pct": cpu_pct or "?",
         "threads": threads or "?",
         "maxrss_kb": maxrss_kb,
     }
+    _metrics_cache = (now, metrics)
+    return metrics
 
 
 def _metrics_from_ps(pid: int) -> tuple[str | None, str | None, str | None]:
@@ -118,13 +158,16 @@ def _metrics_from_ps(pid: int) -> tuple[str | None, str | None, str | None]:
     cpu_pct: str | None = None
     threads: str | None = None
 
-    result = _subprocess_run(
-        ["ps", "-o", "rss=,%cpu=,nlwp=", "-p", str(pid)],
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=1.0,
-    )
+    try:
+        result = _subprocess_run(
+            ["ps", "-o", "rss=,%cpu=,nlwp=", "-p", str(pid)],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=1.0,
+        )
+    except Exception:
+        return None, None, None
     fields = result.stdout.split()
     if len(fields) >= 2:
         rss_kb = fields[0]
@@ -139,13 +182,16 @@ def _metrics_from_ps(pid: int) -> tuple[str | None, str | None, str | None]:
 
 
 def _thread_count_from_ps_m(pid: int) -> str | None:
-    result = _subprocess_run(
-        ["ps", "-M", "-p", str(pid)],
-        text=True,
-        capture_output=True,
-        check=False,
-        timeout=1.0,
-    )
+    try:
+        result = _subprocess_run(
+            ["ps", "-M", "-p", str(pid)],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=1.0,
+        )
+    except Exception:
+        return None
     if not result.stdout.strip():
         return None
     rows = []

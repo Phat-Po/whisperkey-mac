@@ -170,7 +170,11 @@ def describe_returncode(returncode: int) -> str:
 
 def notify(title: str, message: str) -> None:
     script = f'display notification "{_escape_applescript(message)}" with title "{_escape_applescript(title)}"'
-    subprocess.run(["osascript", "-e", script], check=False, timeout=3.0)
+    try:
+        subprocess.run(["osascript", "-e", script], check=False, timeout=3.0)
+    except Exception:
+        # Notification is best-effort; the supervisor must keep running.
+        pass
 
 
 def _escape_applescript(value: str) -> str:

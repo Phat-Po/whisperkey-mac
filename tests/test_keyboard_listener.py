@@ -816,3 +816,37 @@ def test_intercept_reenables_pynput_tap_on_timeout_disable():
 
     mock_enable.assert_called_once_with(pynput_tap, True)
     assert result is not None
+
+
+def test_watchdog_skips_tap_reenable_when_ax_untrusted():
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+    )
+    listener._listener_ax_trusted = False
+    listener._schedule_rebuild_if_authorization_restored = unittest.mock.MagicMock(return_value=False)
+    listener._reenable_tap_if_disabled = unittest.mock.MagicMock()
+
+    listener._reenable_disabled_taps()
+
+    listener._reenable_tap_if_disabled.assert_not_called()
+
+
+def test_watchdog_reenables_taps_when_ax_trusted():
+    listener = HotkeyListener(
+        hold_key="alt_r",
+        handsfree_keys=["cmd", "char:\\"],
+        on_record_start=unittest.mock.MagicMock(),
+        on_record_stop_transcribe=unittest.mock.MagicMock(),
+        on_enter=unittest.mock.MagicMock(),
+    )
+    listener._listener_ax_trusted = True
+    listener._schedule_rebuild_if_authorization_restored = unittest.mock.MagicMock(return_value=False)
+    listener._reenable_tap_if_disabled = unittest.mock.MagicMock()
+
+    listener._reenable_disabled_taps()
+
+    assert listener._reenable_tap_if_disabled.call_count == 2

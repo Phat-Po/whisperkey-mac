@@ -53,3 +53,16 @@ def test_save_config_persists_mode_cycle_fields(tmp_path, monkeypatch):
     data = json.loads(config_path.read_text())
     assert data["mode_cycle_keys"] == ["cmd", "shift", "char:m"]
     assert data["mode_cycle_targets"] == ["disabled", "voice_cleanup"]
+
+
+def test_load_config_ignores_malformed_numeric_env_vars(monkeypatch):
+    monkeypatch.setenv("WHISPERKEY_SAMPLE_RATE", "not-a-number")
+    monkeypatch.setenv("WHISPERKEY_MIN_DURATION", "abc")
+    monkeypatch.setenv("WHISPERKEY_RESULT_MAX_LINES", "")
+
+    from whisperkey_mac.config import load_config
+
+    cfg = load_config()
+
+    assert cfg.sample_rate == 16000
+    assert cfg.min_duration_s == 0.3

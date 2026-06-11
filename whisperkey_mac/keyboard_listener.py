@@ -533,6 +533,11 @@ class HotkeyListener:
         """Re-enable any tap macOS has silently disabled (timeout/sleep/wake)."""
         if self._schedule_rebuild_if_authorization_restored():
             return
+        if self._listener_ax_trusted is False:
+            # Without Accessibility trust, macOS keeps disabling the taps no
+            # matter how often we re-enable or rebuild them. Stay quiet and
+            # wait — the trust check above triggers a rebuild once granted.
+            return
         listener = self._listener
         pynput_tap = getattr(listener, "_wk_tap", None) if listener is not None else None
         self._reenable_tap_if_disabled("pynput", pynput_tap)

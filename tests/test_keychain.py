@@ -9,13 +9,27 @@ def test_save_openai_api_key_returns_false_for_blank_value():
     assert save_openai_api_key("   ") is False
 
 
-def test_save_openai_api_key_uses_security_cli():
+def test_save_openai_api_key_feeds_key_via_stdin_not_argv():
     with unittest.mock.patch("whisperkey_mac.keychain.subprocess.run") as mock_run:
         mock_run.return_value = unittest.mock.Mock(returncode=0)
         assert save_openai_api_key("sk-test") is True
 
     args = mock_run.call_args.args[0]
-    assert args[:3] == ["security", "add-generic-password", "-a"]
+    assert args == ["security", "-i"]
+    stdin_command = mock_run.call_args.kwargs["input"]
+    assert "add-generic-password" in stdin_command
+    assert '-w "sk-test"' in stdin_command
+    # The key must never appear in argv (argv is visible to any local `ps`)
+    assert all("sk-test" not in str(arg) for arg in args)
+
+
+def test_save_openai_api_key_escapes_quotes_and_backslashes():
+    with unittest.mock.patch("whisperkey_mac.keychain.subprocess.run") as mock_run:
+        mock_run.return_value = unittest.mock.Mock(returncode=0)
+        assert save_openai_api_key('k"ey\\x') is True
+
+    stdin_command = mock_run.call_args.kwargs["input"]
+    assert '-w "k\\"ey\\\\x"' in stdin_command
 
 
 def test_load_openai_api_key_prefers_environment_variable():

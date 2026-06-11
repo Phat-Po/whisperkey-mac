@@ -130,7 +130,7 @@ def load_config() -> AppConfig:
         except Exception:
             pass
 
-    # 2. Env var overrides
+    # 2. Env var overrides (malformed numeric values are ignored, not fatal)
     if v := os.getenv("WHISPERKEY_MODEL"):
         cfg.model_size = v
     if v := os.getenv("WHISPERKEY_COMPUTE_TYPE"):
@@ -140,15 +140,24 @@ def load_config() -> AppConfig:
     if v := os.getenv("WHISPERKEY_LANGUAGE"):
         cfg.language = v or None
     if v := os.getenv("WHISPERKEY_SAMPLE_RATE"):
-        cfg.sample_rate = int(v)
+        try:
+            cfg.sample_rate = int(v)
+        except ValueError:
+            pass
     if v := os.getenv("WHISPERKEY_TEMP_DIR"):
         cfg.temp_dir = Path(v) / "whisperkey_mac"
     if v := os.getenv("WHISPERKEY_MIN_DURATION"):
-        cfg.min_duration_s = float(v)
+        try:
+            cfg.min_duration_s = float(v)
+        except ValueError:
+            pass
     if v := os.getenv("WHISPERKEY_AUTO_PASTE"):
         cfg.auto_paste = v == "1"
     if v := os.getenv("WHISPERKEY_RESULT_MAX_LINES"):
-        cfg.result_max_lines = max(1, int(v))
+        try:
+            cfg.result_max_lines = max(1, int(v))
+        except ValueError:
+            pass
     if v := os.getenv("WHISPERKEY_ONLINE_CORRECT"):
         cfg.online_correct_enabled = v.strip().lower() in {"1", "true", "yes", "on"}
         cfg.online_prompt_mode = "asr_correction" if cfg.online_correct_enabled else "disabled"

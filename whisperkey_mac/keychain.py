@@ -8,24 +8,28 @@ OPENAI_KEYCHAIN_SERVICE = "com.whisperkey.openai"
 OPENAI_KEYCHAIN_ACCOUNT = "default"
 
 
+def _security_quote(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def save_openai_api_key(api_key: str) -> bool:
     normalized = api_key.strip()
     if not normalized:
         return False
 
+    # Feed the command through `security -i` stdin so the key never appears
+    # in the process argument list (visible to any local `ps`).
+    command = (
+        "add-generic-password"
+        f" -a {_security_quote(OPENAI_KEYCHAIN_ACCOUNT)}"
+        f" -s {_security_quote(OPENAI_KEYCHAIN_SERVICE)}"
+        f" -w {_security_quote(normalized)}"
+        " -U\n"
+    )
     try:
         result = subprocess.run(
-            [
-                "security",
-                "add-generic-password",
-                "-a",
-                OPENAI_KEYCHAIN_ACCOUNT,
-                "-s",
-                OPENAI_KEYCHAIN_SERVICE,
-                "-w",
-                normalized,
-                "-U",
-            ],
+            ["security", "-i"],
+            input=command,
             capture_output=True,
             text=True,
             check=False,

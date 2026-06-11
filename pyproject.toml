@@ -10,7 +10,9 @@ requires-python = ">=3.10"
 dependencies = [
     "faster-whisper>=1.0",
     "openai>=1.0",
-    "pynput>=1.7",
+    # Pinned to 1.8.x: keyboard_listener relies on pynput darwin internals
+    # (_create_event_tap, _event_to_key, darwin_intercept)
+    "pynput>=1.8,<1.9",
     "sounddevice>=0.4",
     "soundfile>=0.12",
     "numpy>=1.24",
