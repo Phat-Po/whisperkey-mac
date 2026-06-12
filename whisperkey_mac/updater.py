@@ -27,6 +27,7 @@ GITHUB_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest
 RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 AUTO_CHECK_INTERVAL_S = 24 * 3600.0
 LAST_CHECK_PATH = Path.home() / "Library" / "Application Support" / "WhisperKey" / "update-last-check.txt"
+UPDATE_MARKER_PATH = Path.home() / "Library" / "Application Support" / "WhisperKey" / "update-pending-restart.txt"
 _REQUEST_HEADERS = {
     "User-Agent": "WhisperKey-Updater",
     "Accept": "application/vnd.github+json",
@@ -171,6 +172,25 @@ def record_auto_check(
         pass
 
 
+def write_update_marker(version: str, marker_path: Path = UPDATE_MARKER_PATH) -> None:
+    """Write a marker so the next launch knows this is a post-update restart."""
+    try:
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(f"{version}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def consume_update_marker(marker_path: Path = UPDATE_MARKER_PATH) -> str | None:
+    """Read and delete the update marker. Returns the version if present."""
+    try:
+        version = marker_path.read_text(encoding="utf-8").strip()
+        marker_path.unlink(missing_ok=True)
+        return version or None
+    except OSError:
+        return None
+
+
 _ALLOWED_DOWNLOAD_HOSTS = ("github.com", "objects.githubusercontent.com")
 
 
@@ -251,6 +271,7 @@ def download_and_install(info: UpdateInfo, bundle_path: str) -> bool:
             os.rename(backup, bundle)  # roll back — installed app stays usable
             raise
         shutil.rmtree(backup, ignore_errors=True)
+        write_update_marker(info.version)
         diag("update_install_done", version=info.version)
         return True
     except Exception as exc:

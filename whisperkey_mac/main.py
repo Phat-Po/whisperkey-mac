@@ -50,6 +50,12 @@ class App:
         _ = lambda k: t(k, lang)
 
         from whisperkey_mac import onboarding, permissions
+        from whisperkey_mac.updater import consume_update_marker
+
+        # Check if this is a post-update restart (marker written by updater).
+        # If so, reset stale TCC records and re-request permissions without
+        # showing the full onboarding wizard again.
+        _post_update_version = consume_update_marker()
 
         if onboarding.is_frozen():
             if onboarding.maybe_offer_move_to_applications(
@@ -59,10 +65,18 @@ class App:
                 return
             bundle_path = onboarding.app_bundle_path()
             if bundle_path:
-                # Signature changed since last run (e.g. app update) with
-                # permissions denied → old TCC records are stale; clear them
-                # so onboarding re-registers fresh grants.
-                permissions.auto_reset_stale_grants(bundle_path)
+                if _post_update_version:
+                    # Self-update changed the binary → TCC records are stale.
+                    # Reset them and re-request so the user gets a clean grant
+                    # without going through the onboarding wizard again.
+                    diag("post_update_tcc_reset", version=_post_update_version)
+                    permissions.reset_tcc_permissions()
+                    permissions.request_accessibility()
+                    permissions.request_input_monitoring()
+                else:
+                    # Signature changed since last run (e.g. manual re-sign)
+                    # with permissions denied → old TCC records are stale.
+                    permissions.auto_reset_stale_grants(bundle_path)
 
         _sig_name_holder: list[str] = []
 
@@ -102,7 +116,13 @@ class App:
         )
 
         if onboarding.is_frozen():
-            if not permissions.required_granted():
+            if _post_update_version:
+                # After self-update: permissions were just reset + re-requested.
+                # Don't show onboarding; the OS prompts will appear. Re-check
+                # after 10s and show a lightweight reminder if still not granted.
+                diag("post_update_skip_onboarding", version=_post_update_version)
+                callLater(10.0, self._post_update_permission_check)
+            elif not permissions.required_granted():
                 diag("app_permissions_missing_at_start")
                 callLater(0.6, self.open_onboarding)
             callLater(15.0, self._auto_check_updates)
@@ -176,6 +196,23 @@ class App:
 
         print(f"[whisperkey] {_t('onboarding_manual_restart', self._config.ui_language)}")
         os._exit(0)
+
+    # ── Post-update permission check ───────────────────────────────────────
+
+    def _post_update_permission_check(self) -> None:
+        """Re-check permissions 10s after a self-update.
+
+        If the user granted via the OS prompts, everything is fine. If not,
+        show the onboarding wizard as a fallback so they aren't stuck.
+        """
+        from whisperkey_mac import permissions
+        from whisperkey_mac.diagnostics import diag
+
+        if permissions.required_granted():
+            diag("post_update_permissions_ok")
+            return
+        diag("post_update_permissions_still_missing")
+        self.open_onboarding()
 
     # ── Self-update ───────────────────────────────────────────────────────
 

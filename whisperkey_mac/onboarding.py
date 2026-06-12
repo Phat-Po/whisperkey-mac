@@ -256,6 +256,7 @@ class OnboardingWindowController(NSObject):
         self._restart_button.setEnabled_(False)
         content.addSubview_(self._restart_button)
 
+        self._tick_count = 0
         self._window = window
         self._refresh_statuses()
 
@@ -276,6 +277,7 @@ class OnboardingWindowController(NSObject):
 
     def _refresh_statuses(self) -> None:
         lang = self._lang
+        self._tick_count += 1
         ax_ok = permissions.check_accessibility()
         im_ok = permissions.check_input_monitoring()
 
@@ -292,6 +294,13 @@ class OnboardingWindowController(NSObject):
             mic_row["detail"].setStringValue_(t("onboarding_unknown", lang))
 
         ready = bool(ax_ok) and im_ok is not False
+        # Fallback: after 20 seconds, enable the restart button even if
+        # AXIsProcessTrusted() returns False. This handles the case where
+        # TCC records are stale (e.g. after self-update) and the API doesn't
+        # detect the grant even though System Settings shows it ON.
+        if not ready and self._tick_count >= 20:
+            diag("onboarding_fallback_enable_restart", tick=self._tick_count)
+            ready = True
         self._restart_button.setEnabled_(ready)
         self._footer.setStringValue_(
             t("onboarding_all_granted", lang) if ready else t("onboarding_restart_hint", lang)
