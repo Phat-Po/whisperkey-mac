@@ -49,6 +49,48 @@ def _github_token() -> str | None:
         return None
 
 
+def _system_proxies() -> dict[str, str]:
+    """Read macOS system proxy settings so .app bundles respect them.
+
+    Finder-launched apps don't inherit shell env vars (HTTPS_PROXY etc).
+    This reads from SystemConfiguration via PyObjC, which is already a
+    dependency.  Falls back to urllib's built-in getproxies() which also
+    queries the macOS system prefs on darwin.
+    """
+    try:
+        import SystemConfiguration as sc  # type: ignore[import-untyped]
+
+        prefs = sc.SCDynamicStoreCopyProxies(None)
+        if not prefs:
+            return {}
+        proxies: dict[str, str] = {}
+        # HTTP
+        if prefs.get("HTTPEnable"):
+            host = prefs.get("HTTPProxy", "")
+            port = prefs.get("HTTPPort", 0)
+            if host:
+                proxies["http"] = f"http://{host}:{port}" if port else f"http://{host}"
+        # HTTPS
+        if prefs.get("HTTPSEnable"):
+            host = prefs.get("HTTPSProxy", "")
+            port = prefs.get("HTTPSPort", 0)
+            if host:
+                proxies["https"] = f"http://{host}:{port}" if port else f"http://{host}"
+        return proxies
+    except Exception:
+        # Fallback: urllib reads macOS proxy prefs on darwin too
+        return urllib.request.getproxies()
+
+
+def _build_opener() -> urllib.request.OpenerDirector:
+    """Build a URL opener that respects macOS system proxy settings."""
+    proxies = _system_proxies()
+    if proxies:
+        proxy_handler = urllib.request.ProxyHandler(proxies)
+        return urllib.request.build_opener(proxy_handler)
+    return urllib.request.build_opener()
+
+
 @dataclass(frozen=True)
 class UpdateInfo:
     version: str
@@ -86,7 +128,8 @@ def fetch_latest_release(timeout_s: float = 10.0) -> UpdateInfo | None:
         if token:
             headers["Authorization"] = f"Bearer {token}"
         request = urllib.request.Request(GITHUB_API_LATEST, headers=headers)
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:
+        opener = _build_opener()
+        with opener.open(request, timeout=timeout_s) as response:
             data = json.load(response)
     except Exception as exc:
         diag("update_fetch_failed", error_type=type(exc).__name__)
@@ -166,7 +209,8 @@ def download_and_install(info: UpdateInfo, bundle_path: str) -> bool:
         diag("update_download_start", version=info.version)
         zip_path = work_dir / "update.zip"
         request = urllib.request.Request(info.zip_url, headers={"User-Agent": _REQUEST_HEADERS["User-Agent"]})
-        with urllib.request.urlopen(request, timeout=30.0) as response, zip_path.open("wb") as out:
+        opener = _build_opener()
+        with opener.open(request, timeout=30.0) as response, zip_path.open("wb") as out:
             shutil.copyfileobj(response, out)
         diag("update_download_end", size_mb=f"{zip_path.stat().st_size / 1048576:.1f}")
 
