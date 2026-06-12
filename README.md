@@ -30,7 +30,7 @@ Most macOS dictation tools are either online-only or expensive:
 | Free & open source | ✅ | ❌ ($250 lifetime) | ❌ ($15/mo) | ✅ |
 | Fully offline STT | ✅ | ✅ | ❌ | ❌ |
 | Chinese/English mixed | ✅ | ✅ | ✅ | ⚠️ |
-| Voice cleanup (filler removal, re-writing) | ✅ | ✅ | ✅ | ❌ |
+| Voice cleanup (filler removal, structured instructions) | ✅ | ✅ | ✅ | ❌ |
 | Custom word replacements | ✅ | ⚠️ | ⚠️ | ❌ |
 | Token usage dashboard | ✅ | ❌ | ❌ | ❌ |
 | Customizable hotkeys | ✅ | ✅ | ❌ | ❌ |
@@ -52,7 +52,7 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 - **VoiceInput pill overlay** — compact, unobtrusive visual feedback for recording, transcribing, and result states
 
 ### 🧼 Optional AI post-processing
-- **Voice Cleanup** — removes "um", "uh", fillers, repetition, and rewrites rambling speech into clean prose
+- **Voice Cleanup** — converts rambling voice transcripts into structured, actionable instructions (Topic / Objective / Tasks / Requirements / Constraints / Preferences / Inputs / Output / Notes)
 - **ASR Correction** — fixes homophones, punctuation, and obvious transcription errors on short texts
 - **Custom prompt** — bring your own instruction for domain-specific processing
 - **Output Language** — keep original, translate to English, or translate to Chinese after processing
@@ -155,7 +155,7 @@ After local transcription, WhisperKey can optionally pipe the result through Ope
 |---|---|---|---|
 | **Disabled** | Pastes raw Whisper output | Fastest; no cloud calls | — |
 | **ASR Correction** | Fixes homophones, missing punctuation, obvious transcription errors. Minimal rewriting. | Short phrases, command-style input, technical terms | 3 sec |
-| **Voice Cleanup** ⭐ | Removes filler words (*um / uh / 就是 / 那個*), deduplicates hesitation, reorganizes rambling thoughts into clean prose. Preserves all specifics (numbers, names, constraints). | Longer messages, notes, drafting emails / docs | 8 sec |
+| **Voice Cleanup** ⭐ | Converts rambling voice transcripts into structured, actionable instructions. Removes fillers, deduplicates, self-corrects, and outputs Topic / Objective / Tasks / Requirements / Constraints / Preferences / Inputs / Output / Notes sections. Preserves all specifics (numbers, names, constraints). | Longer messages, task planning, pricing analysis, multi-topic discussions | 8 sec |
 | **Custom** | Runs your own system prompt | Domain-specific rewriting (formal, code, translation styles) | 8 sec |
 
 All modes gracefully fall back to the raw transcript on timeout or API error.
