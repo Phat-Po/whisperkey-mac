@@ -48,6 +48,7 @@ WhisperKey 以 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在�
 - **快捷键自愈** — macOS 重新授权、睡眠唤醒或 event tap 被系统关闭后，会自动重建监听器，无需完整重启 App
 - **90+ 语言** 支持，中英混合处理
 - **完全离线转录**（faster-whisper）— 首次下载模型后无需联网
+- **实时流式 ASR**（豆包/火山引擎）— 边说边出字，无需等待转录完成；需要豆包 API 账号
 - **自动粘贴** 到当前应用
 - **VoiceInput 胶囊浮层** — 紧凑低干扰的录音/转录/结果视觉回馈
 
@@ -59,7 +60,7 @@ WhisperKey 以 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在�
 - 使用你自己的 OpenAI API Key，存放在 macOS Keychain（绝不进 git）
 
 ### ⚙️ 完整可调
-- **Settings GUI**，5 个分页：一般、语音、替换词典、用量、进阶
+- **Settings GUI**，6 个分页：一般、语音、替换词典、用量、进阶、豆包
 - **选单列 App** — 实时状态、一键暂停/恢复、快速开启 Settings
 - **替换词典** — 自动把 `cloude → Claude`、`gpt → GPT` 等错识修回
 - **Token 用量仪表板** — 追踪 OpenAI 消耗（今日/本周/总计）与磁碟占用
@@ -154,8 +155,9 @@ WhisperKey 常驻于选单列，无需开窗。
 | **ASR Correction** | 修正同音字、缺漏标点、明显识别错误，几乎不改写 | 短语、指令输入、技术词 | 3 秒 |
 | **Voice Cleanup** ⭐ | 把散乱口语转换成结构化可执行指令。去除赘词、删除重复、自动处理自我修正，输出主题/目标/任务/需求/限制/偏好/输入/输出/备注等分段。保留所有具体细节（数字、名称、限制条件）。 | 较长的说话内容、任务规划、定价分析、多主题讨论 | 8 秒 |
 | **Custom** | 使用你自己的 system prompt | 领域专属改写（正式语气、代码、翻译风格等） | 8 秒 |
+| **Real-time Streaming** | 使用豆包/火山引擎流式 ASR 替代本地 Whisper。边说边出字，无需等待转录完成。跳过 OpenAI 后处理。 | 快速听写、实时笔记、低延迟优先场景 | — |
 
-所有模式在逾时或 API 错误时都会自动降级为原始转录。
+基于 Whisper 的模式在逾时或 API 错误时都会自动降级为原始转录。实时流式需要在 Settings → Doubao 配置豆包 API（App ID + Access Key）。
 
 ---
 
@@ -174,7 +176,7 @@ WhisperKey 常驻 macOS 选单列。点击图标可：
 
 ## ⚙️ Settings GUI
 
-**选单列 → Settings…** 开启。5 个分页涵盖所有配置：
+**选单列 → Settings…** 开启。6 个分页涵盖所有配置：
 
 ### 一般（General）
 - 界面语言（zh / en）
@@ -213,6 +215,12 @@ open ei eye → OpenAI
 - **Handsfree Keys** — 逗号分隔组合（如 `alt_r, cmd_r`）
 - **API Key** — 贴上新的 OpenAI key；自动存入 macOS Keychain
 
+### 豆包（Doubao）
+- **App ID** — 豆包/火山引擎流式 ASR 的 App ID
+- **Access Key** — 豆包/火山引擎 Access Key（存入 Keychain）
+- **Cluster** — ASR 集群 ID（默认 `volc.bigasr.sauc.duration`）
+- **测试连接** — 使用前先验证凭证
+
 ---
 
 ## 📊 用量追踪
@@ -250,7 +258,10 @@ open ei eye → OpenAI
   "online_correct_timeout_s": 8.0,
   "online_prompt_custom_text": "",
   "word_replacements": {},
-  "launch_at_login": false
+  "launch_at_login": false,
+  "doubao_app_id": "",
+  "doubao_access_key": "",
+  "doubao_cluster": "volc.bigasr.sauc.duration"
 }
 ```
 

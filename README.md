@@ -48,6 +48,7 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 - **Self-healing hotkey listener** — recovers after macOS re-authorization, sleep/wake, or disabled event taps without requiring a full app restart
 - **90+ languages** with Chinese/English mixed handling
 - **Fully offline STT** via faster-whisper — no internet after the first model download
+- **Real-time streaming ASR** (Doubao/Volcengine) — see text appear on the overlay as you speak, no wait for transcription; requires a Doubao API account
 - **Auto-paste** directly into the active app
 - **VoiceInput pill overlay** — compact, unobtrusive visual feedback for recording, transcribing, and result states
 
@@ -157,8 +158,9 @@ After local transcription, WhisperKey can optionally pipe the result through Ope
 | **ASR Correction** | Fixes homophones, missing punctuation, obvious transcription errors. Minimal rewriting. | Short phrases, command-style input, technical terms | 3 sec |
 | **Voice Cleanup** ⭐ | Converts rambling voice transcripts into structured, actionable instructions. Removes fillers, deduplicates, self-corrects, and outputs Topic / Objective / Tasks / Requirements / Constraints / Preferences / Inputs / Output / Notes sections. Preserves all specifics (numbers, names, constraints). | Longer messages, task planning, pricing analysis, multi-topic discussions | 8 sec |
 | **Custom** | Runs your own system prompt | Domain-specific rewriting (formal, code, translation styles) | 8 sec |
+| **Real-time Streaming** | Uses Doubao/Volcengine streaming ASR instead of local Whisper. Text appears on the overlay as you speak — no transcription wait. Bypasses OpenAI post-processing. | Fast dictation, live note-taking, when low latency matters most | — |
 
-All modes gracefully fall back to the raw transcript on timeout or API error.
+All Whisper-based modes gracefully fall back to the raw transcript on timeout or API error. Real-time Streaming requires a Doubao API account (App ID + Access Key) configured in Settings → Doubao.
 
 ---
 
@@ -177,7 +179,7 @@ The menu bar title updates live based on service state.
 
 ## ⚙️ Settings GUI
 
-Open via **Menu bar → Settings…** — five tabs cover everything:
+Open via **Menu bar → Settings…** — six tabs cover everything:
 
 ### General
 - Interface Language (zh / en)
@@ -216,6 +218,12 @@ Live dashboard showing:
 - **Handsfree Keys** — comma-separated combo (e.g. `alt_r, cmd_r`)
 - **API Key** — paste a new OpenAI key; stored in macOS Keychain
 
+### Doubao
+- **App ID** — Doubao/Volcengine app ID for streaming ASR
+- **Access Key** — Doubao/Volcengine access key (stored in Keychain)
+- **Cluster** — ASR cluster ID (default: `volc.bigasr.sauc.duration`)
+- **Test Connection** — verify credentials before use
+
 ---
 
 ## 📊 Usage Tracking
@@ -253,7 +261,10 @@ For advanced or scripted setups, config is stored at `~/.config/whisperkey/confi
   "online_correct_timeout_s": 8.0,
   "online_prompt_custom_text": "",
   "word_replacements": {},
-  "launch_at_login": false
+  "launch_at_login": false,
+  "doubao_app_id": "",
+  "doubao_access_key": "",
+  "doubao_cluster": "volc.bigasr.sauc.duration"
 }
 ```
 
