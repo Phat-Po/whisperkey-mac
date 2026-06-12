@@ -45,6 +45,7 @@ PROMPT_MODE_OPTIONS = [
     ("asr_correction", "ASR Correction"),
     ("voice_cleanup", "Voice Cleanup"),
     ("custom", "Custom"),
+    ("streaming", "Real-time Streaming (Doubao)"),
 ]
 
 LANGUAGE_OPTIONS = [
@@ -606,6 +607,7 @@ class SettingsWindowController(NSObject):
         tab_view.addTabViewItem_(self._build_general_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_model_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_voice_tab(IW, IH))
+        tab_view.addTabViewItem_(self._build_doubao_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_wordfix_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_advanced_tab(IW, IH))
         tab_view.addTabViewItem_(self._build_usage_tab(IW, IH))
@@ -614,6 +616,9 @@ class SettingsWindowController(NSObject):
 
     @objc.python_method
     def _build_general_tab(self, w: float, h: float) -> NSTabViewItem:
+        from whisperkey_mac.i18n import t as _t
+
+        lang = getattr(self._config, "ui_language", "en")
         view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
         y = h - 50
 
@@ -622,27 +627,35 @@ class SettingsWindowController(NSObject):
         self._lang_popup.addItemsWithTitles_([t for _, t in LANGUAGE_OPTIONS])
         sel = next((t for v, t in LANGUAGE_OPTIONS if v == self._config.ui_language), "English")
         self._lang_popup.selectItemWithTitle_(sel)
-        y -= 44
+        y -= 22
+        self._hint(view, _t("settings_general_lang_hint", lang), 190, y, width=230)
+        y -= 28
 
         self._lbl(view, "Transcription Language", 20, y)
         self._transcribe_lang_popup = self._popup(view, 190, y - 4, 160)
         self._transcribe_lang_popup.addItemsWithTitles_([t for _, t in TRANSCRIBE_LANGUAGE_OPTIONS])
         sel = next((t for v, t in TRANSCRIBE_LANGUAGE_OPTIONS if v == self._config.transcribe_language), "Auto Detect")
         self._transcribe_lang_popup.selectItemWithTitle_(sel)
-        y -= 44
+        y -= 22
+        self._hint(view, _t("settings_general_transcribe_hint", lang), 190, y, width=230)
+        y -= 28
 
         self._lbl(view, "Output Language", 20, y)
         self._output_lang_popup = self._popup(view, 190, y - 4, 160)
         self._output_lang_popup.addItemsWithTitles_([t for _, t in OUTPUT_LANGUAGE_OPTIONS])
         sel = next((t for v, t in OUTPUT_LANGUAGE_OPTIONS if v == getattr(self._config, "output_language", "auto")), "Match Input")
         self._output_lang_popup.selectItemWithTitle_(sel)
-        y -= 44
+        y -= 22
+        self._hint(view, _t("settings_general_output_hint", lang), 190, y, width=230)
+        y -= 28
 
         self._lbl(view, "Whisper Model", 20, y)
         self._model_popup = self._popup(view, 190, y - 4, 160)
         self._model_popup.addItemsWithTitles_(MODEL_OPTIONS)
         self._model_popup.selectItemWithTitle_(self._config.model_size)
-        y -= 44
+        y -= 22
+        self._hint(view, _t("settings_general_model_hint", lang), 190, y, width=230)
+        y -= 28
 
         self._lbl(view, "Microphone", 20, y)
         self._mic_popup = self._popup(view, 190, y - 4, 220)
@@ -654,7 +667,9 @@ class SettingsWindowController(NSObject):
             self._mic_popup.selectItemWithTitle_(current_device)
         else:
             self._mic_popup.selectItemWithTitle_("System Default")
-        y -= 44
+        y -= 22
+        self._hint(view, _t("settings_general_mic_hint", lang), 190, y, width=230)
+        y -= 28
 
         self._launch_checkbox = NSButton.alloc().initWithFrame_(NSMakeRect(20.0, y, 280.0, 22.0))
         self._launch_checkbox.setButtonType_(3)  # NSSwitchButton
@@ -795,6 +810,103 @@ class SettingsWindowController(NSObject):
         return self._tab_item("Voice", view)
 
     @objc.python_method
+    def _build_doubao_tab(self, w: float, h: float) -> NSTabViewItem:
+        from whisperkey_mac import model_manager
+        from whisperkey_mac.i18n import t as _t
+
+        lang = getattr(self._config, "ui_language", "en")
+        view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
+        y = h - 50
+
+        # Section title
+        self._lbl(view, _t("doubao_section_title", lang), 20, y)
+        y -= 22
+        self._hint(view, _t("doubao_section_desc", lang), 20, y, width=390)
+        y -= 30
+
+        # App ID
+        self._lbl(view, _t("doubao_app_id", lang), 20, y)
+        self._doubao_app_id_field = self._field(
+            view,
+            getattr(self._config, "doubao_app_id", ""),
+            140, y - 2, 270,
+        )
+        y -= 36
+
+        # Access Key (secure)
+        self._lbl(view, _t("doubao_access_key", lang), 20, y)
+        self._doubao_access_key_field = NSSecureTextField.alloc().initWithFrame_(
+            NSMakeRect(140.0, y - 2.0, 270.0, 24.0)
+        )
+        self._doubao_access_key_field.setStringValue_(
+            getattr(self._config, "doubao_access_key", "")
+        )
+        view.addSubview_(self._doubao_access_key_field)
+        y -= 36
+
+        # Cluster ID
+        self._lbl(view, _t("doubao_cluster", lang), 20, y)
+        self._doubao_cluster_field = self._field(
+            view,
+            getattr(self._config, "doubao_cluster", "volc.bigasr.sauc.duration"),
+            140, y - 2, 270,
+        )
+        y -= 40
+
+        # Test connection button + status
+        test_btn = NSButton.alloc().initWithFrame_(NSMakeRect(20.0, y - 2.0, 100.0, 24.0))
+        test_btn.setTitle_(_t("doubao_test_btn", lang))
+        test_btn.setBezelStyle_(1)
+        test_btn.setTarget_(self)
+        test_btn.setAction_("testDoubaoConnection:")
+        view.addSubview_(test_btn)
+
+        # Status label
+        app_id = getattr(self._config, "doubao_app_id", "")
+        access_key = getattr(self._config, "doubao_access_key", "")
+        if app_id and access_key:
+            status_text = _t("doubao_status_not_configured", lang)
+        else:
+            status_text = _t("doubao_status_not_configured", lang)
+        self._doubao_status_label = self._lbl(view, status_text, 130, y, width=280)
+        y -= 36
+
+        # Cost hint
+        self._hint(view, "💡 " + _t("doubao_cost_hint", lang), 20, y, width=390)
+        y -= 20
+        self._hint(view, _t("doubao_setup_link", lang), 20, y, width=390)
+        y -= 30
+
+        # Info about streaming mode
+        self._hint(
+            view,
+            _t("settings_doubao_not_configured_hint", lang) if not (app_id and access_key)
+            else "✓ " + _t("doubao_status_connected", lang).replace("✅ ", ""),
+            20, y, width=390,
+        )
+
+        return self._tab_item(_t("doubao_tab_label", lang), view)
+
+    def testDoubaoConnection_(self, _sender) -> None:
+        """Validate Doubao config fields (non-blocking)."""
+        from whisperkey_mac.doubao_asr import DoubaoConfig, is_configured
+        from whisperkey_mac.i18n import t as _t
+
+        lang = getattr(self._config, "ui_language", "en")
+        app_id = str(self._doubao_app_id_field.stringValue()).strip()
+        access_key = str(self._doubao_access_key_field.stringValue()).strip()
+
+        cfg = DoubaoConfig(app_id=app_id, access_key=access_key)
+        if is_configured(cfg):
+            self._doubao_status_label.setStringValue_(
+                "✅ " + _t("doubao_status_connected", lang).replace("✅ ", "")
+            )
+        else:
+            self._doubao_status_label.setStringValue_(
+                _t("doubao_status_not_configured", lang)
+            )
+
+    @objc.python_method
     def _build_wordfix_tab(self, w: float, h: float) -> NSTabViewItem:
         view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
 
@@ -885,6 +997,9 @@ class SettingsWindowController(NSObject):
 
     @objc.python_method
     def _build_advanced_tab(self, w: float, h: float) -> NSTabViewItem:
+        from whisperkey_mac.i18n import t as _t
+
+        lang = getattr(self._config, "ui_language", "en")
         view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
         y = h - 50
 
@@ -903,14 +1018,22 @@ class SettingsWindowController(NSObject):
         self._register_hotkey_recorder(self._handsfree_recorder)
         view.addSubview_(self._handsfree_recorder)
         self._hint(view, "ESC cancels. Click pill to type manually, e.g.: cmd, char:\\", 190, y - 22)
-        y -= 60
+        y -= 70
 
-        self._lbl(view, "API Key", 20, y)
+        # ── Section separator: Online Correction ──
+        self._lbl(view, "── " + _t("settings_section_api", lang) + " ──", 20, y)
+        y -= 30
+
+        self._lbl(view, _t("settings_api_key_label", lang), 20, y)
         self._api_key_field = NSSecureTextField.alloc().initWithFrame_(
             NSMakeRect(190.0, y - 2.0, 210.0, 24.0)
         )
-        self._api_key_field.setPlaceholderString_("Leave blank to keep existing")
+        self._api_key_field.setPlaceholderString_(_t("settings_api_key_placeholder", lang))
         view.addSubview_(self._api_key_field)
+        y -= 26
+        self._hint(view, _t("settings_api_key_hint", lang), 190, y, width=230)
+        y -= 18
+        self._hint(view, _t("settings_api_key_get", lang), 190, y, width=230)
 
         return self._tab_item("Advanced", view)
 
@@ -941,6 +1064,11 @@ class SettingsWindowController(NSObject):
         mic_title = str(self._mic_popup.titleOfSelectedItem())
         input_device = "" if mic_title == "System Default" else mic_title
 
+        # Doubao fields
+        doubao_app_id = str(self._doubao_app_id_field.stringValue()).strip()
+        doubao_access_key = str(self._doubao_access_key_field.stringValue()).strip()
+        doubao_cluster = str(self._doubao_cluster_field.stringValue()).strip() or "volc.bigasr.sauc.duration"
+
         updated = replace(
             self._config,
             ui_language=lang,
@@ -962,6 +1090,9 @@ class SettingsWindowController(NSObject):
             word_replacements=word_replacements,
             launch_at_login=bool(self._launch_checkbox.state()),
             input_device=input_device,
+            doubao_app_id=doubao_app_id,
+            doubao_access_key=doubao_access_key,
+            doubao_cluster=doubao_cluster,
         )
         updated.online_correct_enabled = updated.online_prompt_mode != "disabled"
 

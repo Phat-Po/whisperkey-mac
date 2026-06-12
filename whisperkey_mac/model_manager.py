@@ -70,7 +70,9 @@ def model_local_path(model_size: str) -> str | None:
     """Return the local cache path for a model, or None if not cached.
 
     Mirrors the resolution logic in faster_whisper's download_model():
-    looks for a snapshots/ directory with at least one snapshot.
+    looks for a snapshots/ directory with at least one snapshot that
+    contains actual model files (not just an empty directory skeleton
+    left behind after a manual cache clear).
     """
     info = MODEL_CATALOG.get(model_size)
     if info is None:
@@ -83,7 +85,10 @@ def model_local_path(model_size: str) -> str | None:
     if not snapshots_dir.exists():
         return None
     snapshots = sorted(snapshots_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
-    return str(snapshots[0]) if snapshots else None
+    for snap in snapshots:
+        if snap.is_dir() and any(snap.iterdir()):
+            return str(snap)
+    return None
 
 
 def is_model_cached(model_size: str) -> bool:

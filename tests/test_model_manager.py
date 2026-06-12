@@ -35,9 +35,21 @@ def test_model_local_path_returns_path_when_cached(tmp_path: Path):
     repo_dir = tmp_path / "models--Systran--faster-whisper-small" / "snapshots"
     snapshot = repo_dir / "abc123"
     snapshot.mkdir(parents=True)
+    (snapshot / "model.bin").touch()  # must contain actual files
     with unittest.mock.patch.object(model_manager, "HUB_CACHE", tmp_path):
         result = model_manager.model_local_path("small")
     assert result == str(snapshot)
+
+
+def test_model_local_path_returns_none_for_empty_snapshot(tmp_path: Path):
+    """Empty snapshot dirs (left after manual cache clear) should not count as cached."""
+    repo_dir = tmp_path / "models--Systran--faster-whisper-small" / "snapshots"
+    snapshot = repo_dir / "abc123"
+    snapshot.mkdir(parents=True)
+    # No files inside — simulates partial cache clear
+    with unittest.mock.patch.object(model_manager, "HUB_CACHE", tmp_path):
+        result = model_manager.model_local_path("small")
+    assert result is None
 
 
 def test_is_model_cached_false(tmp_path: Path):
@@ -47,7 +59,9 @@ def test_is_model_cached_false(tmp_path: Path):
 
 def test_is_model_cached_true(tmp_path: Path):
     repo_dir = tmp_path / "models--Systran--faster-whisper-base" / "snapshots"
-    (repo_dir / "snap1").mkdir(parents=True)
+    snap = repo_dir / "snap1"
+    snap.mkdir(parents=True)
+    (snap / "model.bin").touch()
     with unittest.mock.patch.object(model_manager, "HUB_CACHE", tmp_path):
         assert model_manager.is_model_cached("base") is True
 
@@ -55,7 +69,9 @@ def test_is_model_cached_true(tmp_path: Path):
 def test_cached_model_sizes(tmp_path: Path):
     # Cache only "small"
     repo_dir = tmp_path / "models--Systran--faster-whisper-small" / "snapshots"
-    (repo_dir / "snap1").mkdir(parents=True)
+    snap = repo_dir / "snap1"
+    snap.mkdir(parents=True)
+    (snap / "model.bin").touch()
     with unittest.mock.patch.object(model_manager, "HUB_CACHE", tmp_path):
         result = model_manager.cached_model_sizes()
     assert result == ["small"]
@@ -72,6 +88,7 @@ def test_download_model_returns_cached_path_if_already_cached(tmp_path: Path):
     repo_dir = tmp_path / "models--Systran--faster-whisper-small" / "snapshots"
     snap = repo_dir / "abc123"
     snap.mkdir(parents=True)
+    (snap / "model.bin").touch()
     with unittest.mock.patch.object(model_manager, "HUB_CACHE", tmp_path):
         result = model_manager.download_model("small")
     assert result == str(snap)

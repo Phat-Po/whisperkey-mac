@@ -59,8 +59,9 @@ def button_title_for_state(is_running: bool) -> str:
     return "WK" if is_running else "WK·"
 
 
-def service_menu_title_for_state(is_running: bool) -> str:
-    return "Stop Service" if is_running else "Start Service"
+def service_menu_title_for_state(is_running: bool, lang: str = "en") -> str:
+    from whisperkey_mac.i18n import t
+    return t("menu_stop_service", lang) if is_running else t("menu_start_service", lang)
 
 
 def mode_indicator_rgb_for_mode(mode: str) -> tuple[float, float, float]:
@@ -183,7 +184,7 @@ class MenuBarController(NSObject):
         menu.addItem_(NSMenuItem.separatorItem())
 
         self._toggle_service_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            service_menu_title_for_state(self._service.is_running),
+            service_menu_title_for_state(self._service.is_running, self._lang),
             "toggleService:",
             "",
         )
@@ -210,7 +211,7 @@ class MenuBarController(NSObject):
         menu.addItem_(NSMenuItem.separatorItem())
 
         settings_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
-            "Settings",
+            t("menu_settings", self._lang),
             "openSettings:",
             "",
         )
@@ -235,7 +236,7 @@ class MenuBarController(NSObject):
 
         menu.addItem_(NSMenuItem.separatorItem())
 
-        quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit WhisperKey", "quitApp:", "")
+        quit_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(t("menu_quit", self._lang), "quitApp:", "")
         quit_item.setTarget_(self)
         menu.addItem_(quit_item)
 
@@ -247,7 +248,7 @@ class MenuBarController(NSObject):
         self._mode = getattr(self._service.config, "online_prompt_mode", "disabled")
         self._sync_status_button()
         self._status_line_item.setTitle_(status_line_title(self._service.status_label(), self._mode))
-        self._toggle_service_item.setTitle_(service_menu_title_for_state(is_running))
+        self._toggle_service_item.setTitle_(service_menu_title_for_state(is_running, self._lang))
         self._refresh_permission_item()
         self._refresh_api_key_item()
 

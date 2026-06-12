@@ -366,15 +366,24 @@ class ServiceController:
         """Download a model in background, then switch to it.
 
         on_progress(bytes_done, bytes_total, elapsed_s) — called from worker thread
-        on_done(local_path_or_None) — called from worker thread
+        on_done(local_path_or_None) — dispatched to main thread
         """
         from whisperkey_mac import model_manager
+        from whisperkey_mac.overlay import dispatch_to_main
 
         def _on_done(path):
+            # change_model() touches AppKit (transcriber unload/reload,
+            # status callbacks) so it MUST run on the main thread.
             if path:
-                self.change_model(model_size)
-            if on_done:
-                on_done(path)
+                def _switch_and_notify():
+                    self.change_model(model_size)
+                    if on_done:
+                        on_done(path)
+
+                dispatch_to_main(_switch_and_notify)
+            else:
+                if on_done:
+                    dispatch_to_main(on_done, path)
 
         model_manager.download_model_async(
             model_size,
