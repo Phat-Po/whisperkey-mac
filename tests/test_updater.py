@@ -121,16 +121,31 @@ def test_auto_reset_runs_when_signature_changed_and_denied(tmp_path: Path):
     assert stamp.read_text().strip() == "team:X"
 
 
-def test_auto_reset_skips_when_signature_unchanged(tmp_path: Path):
+def test_auto_reset_skips_when_signature_unchanged_and_granted(tmp_path: Path):
     stamp = tmp_path / "stamp.txt"
     stamp.write_text("team:X\n")
     with (
         unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X"),
+        unittest.mock.patch.object(permissions, "required_granted", return_value=True),
         unittest.mock.patch.object(permissions, "reset_tcc_permissions") as mock_reset,
     ):
         assert permissions.auto_reset_stale_grants("/x.app", stamp_path=stamp) is False
 
     mock_reset.assert_not_called()
+
+
+def test_auto_reset_runs_when_signature_unchanged_but_denied(tmp_path: Path):
+    """Same team identity but binary changed → CDHash changed → TCC stale."""
+    stamp = tmp_path / "stamp.txt"
+    stamp.write_text("team:X\n")
+    with (
+        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X"),
+        unittest.mock.patch.object(permissions, "required_granted", return_value=False),
+        unittest.mock.patch.object(permissions, "reset_tcc_permissions", return_value=True) as mock_reset,
+    ):
+        assert permissions.auto_reset_stale_grants("/x.app", stamp_path=stamp) is True
+
+    mock_reset.assert_called_once()
 
 
 def test_auto_reset_skips_reset_when_permissions_already_granted(tmp_path: Path):

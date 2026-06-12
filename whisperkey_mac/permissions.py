@@ -193,13 +193,15 @@ def auto_reset_stale_grants(
     bundle_path: str,
     stamp_path: Path = SIGNING_STAMP_PATH,
 ) -> bool:
-    """On signature change with missing permissions, clear stale TCC records.
+    """Clear stale TCC records when permissions are not detected.
 
-    Called once at packaged-app startup. The stamp file remembers which
-    signing identity last ran; a mismatch (or missing stamp) combined with
-    denied permissions means the existing TCC records are useless — clearing
-    them lets the onboarding flow create fresh, matching grants. Partial
-    grants under the SAME identity are never touched.
+    Called once at packaged-app startup. Resets TCC if:
+    - The signing identity changed (stamp mismatch), OR
+    - The binary changed but identity stayed the same (common after self-update:
+      same team ID but different CDHash → AXIsProcessTrusted() returns False
+      even though System Settings shows the toggle ON)
+
+    Only skips reset when permissions are already working.
     """
     current = current_signature_stamp(bundle_path)
     if current is None:
@@ -211,18 +213,24 @@ def auto_reset_stale_grants(
     except OSError:
         pass
 
-    if previous == current:
+    # If permissions are already working, nothing to do — just update the stamp.
+    if required_granted():
+        try:
+            stamp_path.parent.mkdir(parents=True, exist_ok=True)
+            stamp_path.write_text(current + "\n", encoding="utf-8")
+        except OSError:
+            pass
         return False
 
-    acted = False
-    if not required_granted():
-        diag("tcc_auto_reset", previous=previous or "none", current=current)
-        reset_tcc_permissions()
-        acted = True
+    # Permissions not working. Reset TCC regardless of whether the stamp
+    # matches — a binary update under the same team identity changes the
+    # CDHash, which breaks TCC matching even though the team ID is identical.
+    diag("tcc_auto_reset", previous=previous or "none", current=current)
+    reset_tcc_permissions()
 
     try:
         stamp_path.parent.mkdir(parents=True, exist_ok=True)
         stamp_path.write_text(current + "\n", encoding="utf-8")
     except OSError:
         pass
-    return acted
+    return True
