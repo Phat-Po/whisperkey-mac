@@ -40,7 +40,9 @@ def test_fetch_latest_release_parses_github_payload():
     payload = io.BytesIO(json.dumps(_fake_release_payload()).encode())
     cm = unittest.mock.MagicMock()
     cm.__enter__.return_value = payload
-    with unittest.mock.patch("whisperkey_mac.updater.urllib.request.urlopen", return_value=cm):
+    mock_opener = unittest.mock.MagicMock()
+    mock_opener.open.return_value = cm
+    with unittest.mock.patch("whisperkey_mac.updater._build_opener", return_value=mock_opener):
         info = updater.fetch_latest_release()
 
     assert info is not None
@@ -50,9 +52,9 @@ def test_fetch_latest_release_parses_github_payload():
 
 
 def test_fetch_latest_release_returns_none_on_network_error():
-    with unittest.mock.patch(
-        "whisperkey_mac.updater.urllib.request.urlopen", side_effect=OSError("offline")
-    ):
+    mock_opener = unittest.mock.MagicMock()
+    mock_opener.open.side_effect = OSError("offline")
+    with unittest.mock.patch("whisperkey_mac.updater._build_opener", return_value=mock_opener):
         assert updater.fetch_latest_release() is None
 
 
