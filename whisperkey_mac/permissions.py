@@ -163,10 +163,11 @@ def reset_tcc_permissions(bundle_id: str = BUNDLE_ID) -> bool:
 
 
 def current_signature_stamp(bundle_path: str) -> str | None:
-    """Stable identifier of the bundle's signing identity.
+    """Unique identifier of the bundle's binary + signing identity.
 
-    Returns "team:<id>" for certificate signatures (stable across rebuilds),
-    "adhoc" for ad-hoc signatures, or None when unreadable.
+    Returns "team:<id>:<cdhash>" for certificate signatures or "adhoc:<cdhash>"
+    for ad-hoc signatures.  The CDHash ensures a binary change (e.g. after
+    self-update) is detected even when the team identity stays the same.
     """
     try:
         result = subprocess.run(
@@ -181,27 +182,27 @@ def current_signature_stamp(bundle_path: str) -> str | None:
     if result.returncode != 0:
         return None
     info = result.stderr
+    # Extract CDHash (first 40 hex chars of the CDHash line)
+    cdhash_match = re.search(r"CDHash=([0-9a-f]{40})", info)
+    cdhash = cdhash_match.group(1) if cdhash_match else "unknown"
     if "Signature=adhoc" in info:
-        return "adhoc"
+        return f"adhoc:{cdhash}"
     team_match = re.search(r"TeamIdentifier=(\S+)", info)
     if team_match and team_match.group(1) != "not":  # "TeamIdentifier=not set"
-        return f"team:{team_match.group(1)}"
-    return "signed:unknown-team"
+        return f"team:{team_match.group(1)}:{cdhash}"
+    return f"signed:unknown-team:{cdhash}"
 
 
 def auto_reset_stale_grants(
     bundle_path: str,
     stamp_path: Path = SIGNING_STAMP_PATH,
 ) -> bool:
-    """Clear stale TCC records when permissions are not detected.
+    """On binary/signature change, clear stale TCC records.
 
-    Called once at packaged-app startup. Resets TCC if:
-    - The signing identity changed (stamp mismatch), OR
-    - The binary changed but identity stayed the same (common after self-update:
-      same team ID but different CDHash → AXIsProcessTrusted() returns False
-      even though System Settings shows the toggle ON)
-
-    Only skips reset when permissions are already working.
+    Called once at packaged-app startup. The stamp includes the CDHash, so a
+    binary update under the same team identity is detected.  After resetting,
+    the stamp is updated immediately so the same binary never resets twice
+    (preventing a reset → grant → restart → reset loop).
     """
     current = current_signature_stamp(bundle_path)
     if current is None:
@@ -213,24 +214,22 @@ def auto_reset_stale_grants(
     except OSError:
         pass
 
-    # If permissions are already working, nothing to do — just update the stamp.
-    if required_granted():
-        try:
-            stamp_path.parent.mkdir(parents=True, exist_ok=True)
-            stamp_path.write_text(current + "\n", encoding="utf-8")
-        except OSError:
-            pass
+    if previous == current:
         return False
 
-    # Permissions not working. Reset TCC regardless of whether the stamp
-    # matches — a binary update under the same team identity changes the
-    # CDHash, which breaks TCC matching even though the team ID is identical.
-    diag("tcc_auto_reset", previous=previous or "none", current=current)
-    reset_tcc_permissions()
+    # Stamp changed (new binary or first run). Reset stale TCC records.
+    acted = False
+    if not required_granted():
+        diag("tcc_auto_reset", previous=previous or "none", current=current)
+        reset_tcc_permissions()
+        acted = True
 
+    # Update stamp IMMEDIATELY — even if we didn't reset (permissions were
+    # already granted). This prevents the same binary from matching again on
+    # the next restart and triggering a loop.
     try:
         stamp_path.parent.mkdir(parents=True, exist_ok=True)
         stamp_path.write_text(current + "\n", encoding="utf-8")
     except OSError:
         pass
-    return True
+    return acted

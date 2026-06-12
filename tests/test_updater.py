@@ -93,40 +93,41 @@ def _codesign_result(stderr: str):
 def test_current_signature_stamp_detects_adhoc():
     with unittest.mock.patch(
         "whisperkey_mac.permissions.subprocess.run",
-        return_value=_codesign_result("Signature=adhoc\n"),
+        return_value=_codesign_result("Signature=adhoc\nCDHash=abcdef1234567890abcdef1234567890abcdef12\n"),
     ):
-        assert permissions.current_signature_stamp("/x.app") == "adhoc"
+        assert permissions.current_signature_stamp("/x.app") == "adhoc:abcdef1234567890abcdef1234567890abcdef12"
 
 
 def test_current_signature_stamp_detects_team():
-    stderr = "Authority=Apple Development: a@b.com (52Y4Y32YA8)\nTeamIdentifier=Z42TPKX875\n"
+    stderr = "Authority=Apple Development: a@b.com (52Y4Y32YA8)\nTeamIdentifier=Z42TPKX875\nCDHash=abcdef1234567890abcdef1234567890abcdef12\n"
     with unittest.mock.patch(
         "whisperkey_mac.permissions.subprocess.run",
         return_value=_codesign_result(stderr),
     ):
-        assert permissions.current_signature_stamp("/x.app") == "team:Z42TPKX875"
+        assert permissions.current_signature_stamp("/x.app") == "team:Z42TPKX875:abcdef1234567890abcdef1234567890abcdef12"
 
 
 def test_auto_reset_runs_when_signature_changed_and_denied(tmp_path: Path):
     stamp = tmp_path / "stamp.txt"
-    stamp.write_text("adhoc\n")
+    stamp.write_text("adhoc:oldhash\n")
     with (
-        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X"),
+        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X:abc123"),
         unittest.mock.patch.object(permissions, "required_granted", return_value=False),
         unittest.mock.patch.object(permissions, "reset_tcc_permissions", return_value=True) as mock_reset,
     ):
         assert permissions.auto_reset_stale_grants("/x.app", stamp_path=stamp) is True
 
     mock_reset.assert_called_once()
-    assert stamp.read_text().strip() == "team:X"
+    assert stamp.read_text().strip() == "team:X:abc123"
 
 
-def test_auto_reset_skips_when_signature_unchanged_and_granted(tmp_path: Path):
+def test_auto_reset_skips_when_stamp_unchanged(tmp_path: Path):
+    """Same stamp = same binary, no reset needed."""
     stamp = tmp_path / "stamp.txt"
-    stamp.write_text("team:X\n")
+    stamp.write_text("team:X:abc123\n")
     with (
-        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X"),
-        unittest.mock.patch.object(permissions, "required_granted", return_value=True),
+        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X:abc123"),
+        unittest.mock.patch.object(permissions, "required_granted", return_value=False),
         unittest.mock.patch.object(permissions, "reset_tcc_permissions") as mock_reset,
     ):
         assert permissions.auto_reset_stale_grants("/x.app", stamp_path=stamp) is False
@@ -134,41 +135,58 @@ def test_auto_reset_skips_when_signature_unchanged_and_granted(tmp_path: Path):
     mock_reset.assert_not_called()
 
 
-def test_auto_reset_runs_when_signature_unchanged_but_denied(tmp_path: Path):
-    """Same team identity but binary changed → CDHash changed → TCC stale."""
+def test_auto_reset_runs_when_cdhash_changed_but_team_same(tmp_path: Path):
+    """Same team identity but binary changed → CDHash different → reset."""
     stamp = tmp_path / "stamp.txt"
-    stamp.write_text("team:X\n")
+    stamp.write_text("team:X:oldhash\n")
     with (
-        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X"),
+        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X:newhash"),
         unittest.mock.patch.object(permissions, "required_granted", return_value=False),
         unittest.mock.patch.object(permissions, "reset_tcc_permissions", return_value=True) as mock_reset,
     ):
         assert permissions.auto_reset_stale_grants("/x.app", stamp_path=stamp) is True
 
     mock_reset.assert_called_once()
+    assert stamp.read_text().strip() == "team:X:newhash"
 
 
 def test_auto_reset_skips_reset_when_permissions_already_granted(tmp_path: Path):
     stamp = tmp_path / "stamp.txt"
-    stamp.write_text("adhoc\n")
+    stamp.write_text("adhoc:oldhash\n")
     with (
-        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X"),
+        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X:abc123"),
         unittest.mock.patch.object(permissions, "required_granted", return_value=True),
         unittest.mock.patch.object(permissions, "reset_tcc_permissions") as mock_reset,
     ):
         assert permissions.auto_reset_stale_grants("/x.app", stamp_path=stamp) is False
 
     mock_reset.assert_not_called()
-    assert stamp.read_text().strip() == "team:X"
+    # Stamp still updated even when no reset needed
+    assert stamp.read_text().strip() == "team:X:abc123"
 
 
 def test_auto_reset_handles_first_run_without_stamp(tmp_path: Path):
     stamp = tmp_path / "stamp.txt"
     with (
-        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X"),
+        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X:abc123"),
         unittest.mock.patch.object(permissions, "required_granted", return_value=False),
         unittest.mock.patch.object(permissions, "reset_tcc_permissions", return_value=True) as mock_reset,
     ):
         assert permissions.auto_reset_stale_grants("/x.app", stamp_path=stamp) is True
 
     mock_reset.assert_called_once()
+
+
+def test_auto_reset_no_loop_on_restart_after_grant(tmp_path: Path):
+    """Simulates: update → reset → user grants → restart → stamp matches → no loop."""
+    stamp = tmp_path / "stamp.txt"
+    stamp.write_text("team:X:abc123\n")
+    # On restart, stamp matches (we updated it after reset), permissions now granted
+    with (
+        unittest.mock.patch.object(permissions, "current_signature_stamp", return_value="team:X:abc123"),
+        unittest.mock.patch.object(permissions, "required_granted", return_value=True),
+        unittest.mock.patch.object(permissions, "reset_tcc_permissions") as mock_reset,
+    ):
+        assert permissions.auto_reset_stale_grants("/x.app", stamp_path=stamp) is False
+
+    mock_reset.assert_not_called()
