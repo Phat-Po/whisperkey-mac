@@ -2,6 +2,31 @@
 
 ## Current
 
+### 2026-06-14 | Doubao Mode UX implemented, packaged test fails streaming/no-output
+
+Done this session:
+- Implemented Doubao Mode UI/flow changes: mode naming, bottom bar click-to-start/stop, live streaming text surface, settings paste buttons, mode/status labels, and post-processing after Doubao ASR.
+- Fixed misleading onboarding footer so it no longer says permissions are fully ready while permission rows still show ❌.
+- Built signed local app at `dist/WhisperKey.app` and verified codesign.
+- Ran full tests: `269 passed`.
+
+Current state:
+- Code/tests/build pass, but manual packaged-app test failed: Doubao Mode did not show streaming text and produced no output after recording ended.
+- The likely issue is not the overlay UX layer; next debug should focus on `doubao_asr.py`, WebSocket dependency packaging, live auth/protocol, and diagnostics.
+- Handoff doc: `tasks/HANDOFF-20260614-doubao-streaming-no-output.md`.
+
+Next steps:
+1. Reproduce with packaged app and inspect `/tmp/whisperkey-diag.log` for `doubao_*` / `streaming_asr_*` events.
+2. Check WebSocket dependency mismatch: `doubao_asr.py` imports `websocket`, but `pyproject.toml` does not list `websocket-client`.
+3. Validate Doubao binary protocol/auth against official Volcengine docs and make Settings Test Connection a real network check.
+
+Decisions / notes:
+- Do not silently fall back to local Whisper in Doubao Mode.
+- Do not ask operator to paste credentials into chat; keep credentials local.
+- Rebuilding `dist/WhisperKey.app` requires confirmation because build script clears generated artifacts.
+
+---
+
 ### 2026-06-12 | Model download UX + Doubao streaming ASR + security fixes
 
 Done this session:

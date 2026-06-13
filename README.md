@@ -48,7 +48,7 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 - **Self-healing hotkey listener** — recovers after macOS re-authorization, sleep/wake, or disabled event taps without requiring a full app restart
 - **90+ languages** with Chinese/English mixed handling
 - **Fully offline STT** via faster-whisper — no internet after the first model download
-- **Real-time streaming ASR** (Doubao/Volcengine) — see text appear on the overlay as you speak, no wait for transcription; requires a Doubao API account
+- **Doubao Mode / real-time streaming ASR** — see text appear on the bottom bar as you speak; when recording ends, WhisperKey uses the Doubao result for cleanup/post-processing
 - **Auto-paste** directly into the active app
 - **VoiceInput pill overlay** — compact, unobtrusive visual feedback for recording, transcribing, and result states
 
@@ -158,9 +158,9 @@ After local transcription, WhisperKey can optionally pipe the result through Ope
 | **ASR Correction** | Fixes homophones, missing punctuation, obvious transcription errors. Minimal rewriting. | Short phrases, command-style input, technical terms | 3 sec |
 | **Voice Cleanup** ⭐ | Converts rambling voice transcripts into structured, actionable instructions. Removes fillers, deduplicates, self-corrects, and outputs Topic / Objective / Tasks / Requirements / Constraints / Preferences / Inputs / Output / Notes sections. Preserves all specifics (numbers, names, constraints). | Longer messages, task planning, pricing analysis, multi-topic discussions | 8 sec |
 | **Custom** | Runs your own system prompt | Domain-specific rewriting (formal, code, translation styles) | 8 sec |
-| **Real-time Streaming** | Uses Doubao/Volcengine streaming ASR instead of local Whisper. Text appears on the overlay as you speak — no transcription wait. Bypasses OpenAI post-processing. | Fast dictation, live note-taking, when low latency matters most | — |
+| **Doubao Mode (Real-time)** | Uses Doubao/Volcengine streaming ASR instead of local Whisper. Text appears on the bottom bar as you speak; when recording ends, the final Doubao transcript is cleaned up automatically. | Fast dictation, live note-taking, when low latency matters most | 8 sec |
 
-All Whisper-based modes gracefully fall back to the raw transcript on timeout or API error. Real-time Streaming requires a Doubao API account (App ID + Access Key) configured in Settings → Doubao.
+All Whisper-based modes gracefully fall back to the raw transcript on timeout or API error. Doubao Mode requires a Doubao API account (App ID + Access Key) configured in Settings → Doubao. In Doubao Mode the local Whisper model is not run in parallel; only the Doubao streaming result is kept, then post-processing runs on that text.
 
 ---
 
@@ -220,9 +220,10 @@ Live dashboard showing:
 
 ### Doubao
 - **App ID** — Doubao/Volcengine app ID for streaming ASR
-- **Access Key** — Doubao/Volcengine access key (stored in Keychain)
+- **Access Key** — Doubao/Volcengine access key
 - **Cluster** — ASR cluster ID (default: `volc.bigasr.sauc.duration`)
-- **Test Connection** — verify credentials before use
+- **Paste** — each credential field has a paste button for cases where Command+V does not work
+- **Test Connection** — marks Doubao Mode as configured/available before use
 
 ---
 

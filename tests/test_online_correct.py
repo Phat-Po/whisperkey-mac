@@ -122,3 +122,19 @@ def test_custom_prompt_mode_returns_plain_text_output():
         result = maybe_process_online("你好世界", cfg)
 
     assert result == "hello world"
+
+
+def test_streaming_mode_uses_voice_cleanup_prompt():
+    cfg = _config(online_prompt_mode="streaming")
+    fake_client = unittest.mock.MagicMock()
+    fake_client.responses.create.return_value = SimpleNamespace(output_text="Topic: 豆包接入")
+
+    with (
+        unittest.mock.patch("whisperkey_mac.online_correct.load_openai_api_key", return_value="sk-test"),
+        unittest.mock.patch("whisperkey_mac.online_correct._build_openai_client", return_value=fake_client),
+    ):
+        result = maybe_process_online("嗯然后我们接入豆包实时语音识别", cfg)
+
+    assert result == "Topic: 豆包接入"
+    kwargs = fake_client.responses.create.call_args.kwargs
+    assert "transcript-to-instruction editor" in kwargs["instructions"]

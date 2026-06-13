@@ -26,6 +26,7 @@ MODE_INDICATOR_RGB = {
     "asr_correction": (0.22, 0.48, 0.95),
     "voice_cleanup": (0.58, 0.36, 0.92),
     "custom": (0.94, 0.68, 0.20),
+    "streaming": (0.06, 0.58, 0.48),
 }
 
 MODE_MENU_LABELS = {
@@ -33,7 +34,7 @@ MODE_MENU_LABELS = {
     "asr_correction": "ASR Correction",
     "voice_cleanup": "Voice Cleanup",
     "custom": "Custom",
-    "streaming": "Real-time Streaming",
+    "streaming": "Doubao Mode",
 }
 
 MODE_I18N_KEYS = {

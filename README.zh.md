@@ -48,7 +48,7 @@ WhisperKey 以 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在�
 - **快捷键自愈** — macOS 重新授权、睡眠唤醒或 event tap 被系统关闭后，会自动重建监听器，无需完整重启 App
 - **90+ 语言** 支持，中英混合处理
 - **完全离线转录**（faster-whisper）— 首次下载模型后无需联网
-- **实时流式 ASR**（豆包/火山引擎）— 边说边出字，无需等待转录完成；需要豆包 API 账号
+- **豆包模式 / 实时流式 ASR** — 边说边在底部 bar 出字；录音结束后继续自动清理整理
 - **自动粘贴** 到当前应用
 - **VoiceInput 胶囊浮层** — 紧凑低干扰的录音/转录/结果视觉回馈
 
@@ -155,9 +155,9 @@ WhisperKey 常驻于选单列，无需开窗。
 | **ASR Correction** | 修正同音字、缺漏标点、明显识别错误，几乎不改写 | 短语、指令输入、技术词 | 3 秒 |
 | **Voice Cleanup** ⭐ | 把散乱口语转换成结构化可执行指令。去除赘词、删除重复、自动处理自我修正，输出主题/目标/任务/需求/限制/偏好/输入/输出/备注等分段。保留所有具体细节（数字、名称、限制条件）。 | 较长的说话内容、任务规划、定价分析、多主题讨论 | 8 秒 |
 | **Custom** | 使用你自己的 system prompt | 领域专属改写（正式语气、代码、翻译风格等） | 8 秒 |
-| **Real-time Streaming** | 使用豆包/火山引擎流式 ASR 替代本地 Whisper。边说边出字，无需等待转录完成。跳过 OpenAI 后处理。 | 快速听写、实时笔记、低延迟优先场景 | — |
+| **Doubao Mode (Real-time)** | 使用豆包/火山引擎流式 ASR 替代本地 Whisper。边说边在底部 bar 出字；录音结束后，使用豆包最终转写文本自动清理整理。 | 快速听写、实时笔记、低延迟优先场景 | 8 秒 |
 
-基于 Whisper 的模式在逾时或 API 错误时都会自动降级为原始转录。实时流式需要在 Settings → Doubao 配置豆包 API（App ID + Access Key）。
+基于 Whisper 的模式在逾时或 API 错误时都会自动降级为原始转录。豆包模式需要在 Settings → Doubao 配置豆包 API（App ID + Access Key）。豆包模式下不会同时运行本地 Whisper；只保留豆包实时流式识别结果，然后对这段文本做后处理。
 
 ---
 
@@ -217,9 +217,10 @@ open ei eye → OpenAI
 
 ### 豆包（Doubao）
 - **App ID** — 豆包/火山引擎流式 ASR 的 App ID
-- **Access Key** — 豆包/火山引擎 Access Key（存入 Keychain）
+- **Access Key** — 豆包/火山引擎 Access Key
 - **Cluster** — ASR 集群 ID（默认 `volc.bigasr.sauc.duration`）
-- **测试连接** — 使用前先验证凭证
+- **粘贴** — 每个认证字段都有粘贴按钮，用于 Command+V 不生效的情况
+- **测试连接** — 使用前标明豆包模式是否已配置/可用
 
 ---
 

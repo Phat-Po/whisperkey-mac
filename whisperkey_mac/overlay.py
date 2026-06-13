@@ -85,12 +85,14 @@ MODE_SWITCH_LABELS = {
         "voice_cleanup": "CLEAN",
         "custom": "CUSTOM",
         "disabled": "OFF",
+        "streaming": "DOUBAO",
     },
     "zh": {
         "asr_correction": "校正",
         "voice_cleanup": "润色",
         "custom": "自定义",
         "disabled": "关闭",
+        "streaming": "豆包",
     },
 }
 
@@ -133,10 +135,16 @@ class VoiceInputView(NSView):
         self._audio_level = 0.0
         self._record_secs = 0
         self._draw_error_reported = False
+        self._click_handler = None
         return self
 
     def isFlipped(self):
         return False
+
+    def mouseDown_(self, _event):
+        handler = getattr(self, "_click_handler", None)
+        if handler is not None:
+            handler()
 
     def drawRect_(self, dirtyRect):
         try:
@@ -322,6 +330,7 @@ class AuroraRenderer:
     ACTIVE_W: float = 220.0
     ACTIVE_H: float = 52.0
     ACTIVE_CORNER_RADIUS: float = 26.0
+    STREAMING_W: float = 420.0
 
     # Result geometry
     RESULT_W: float = 300.0
@@ -527,6 +536,43 @@ class AuroraRenderer:
         self._apply_result_layout(text)
         self._panel.setAlphaValue_(1.0)
 
+    def show_streaming_text(self, gen: int, text: str) -> None:
+        self._visual_gen = gen
+        self._mode = OverlayState.RECORDING
+
+        w = self.STREAMING_W
+        h = self.ACTIVE_H
+        control_w = 126.0
+        text_x = control_w + 10.0
+        content_w = w - text_x - 18.0
+        self._content_view.setFrame_(NSMakeRect(0, 0, w, h))
+        self._content_view.layer().setFrame_(NSMakeRect(0, 0, w, h))
+        self._root_layer.setCornerRadius_(self.ACTIVE_CORNER_RADIUS)
+        self._root_layer.setBorderWidth_(1.0)
+        self._root_layer.setBorderColor_(
+            NSColor.colorWithSRGBRed_green_blue_alpha_(0.0, 0.0, 0.0, 0.10).CGColor()
+        )
+        self._root_layer.setBackgroundColor_(
+            NSColor.colorWithSRGBRed_green_blue_alpha_(1.0, 1.0, 1.0, 0.90).CGColor()
+        )
+
+        self._orb_view._orb_state = "recording"
+        self._orb_view.setFrame_(NSMakeRect(0, 0, control_w, h))
+        self._orb_view.setNeedsDisplay_(True)
+
+        self._label.setStringValue_(text)
+        self._label.setAlignment_(0)
+        self._label.setFrame_(NSMakeRect(text_x, 18.0, content_w, 22.0))
+        self._label.setHidden_(False)
+        self._sublabel.setStringValue_("实时识别中...")
+        self._sublabel.setAlignment_(0)
+        self._sublabel.setFrame_(NSMakeRect(text_x, 4.0, content_w, 14.0))
+        self._sublabel.setHidden_(False)
+        self._hide_mode_label()
+
+        self._panel.setFrame_display_(self._streaming_frame(h), False)
+        self._panel.setAlphaValue_(1.0)
+
     def show_mode_switch(self, gen: int, label: str) -> None:
         self._visual_gen = gen
         self._mode = OverlayState.MODE_SWITCH
@@ -649,6 +695,10 @@ class AuroraRenderer:
     def _active_frame(self, height: float):
         x = (self._screen_w - self.ACTIVE_W) / 2.0
         return NSMakeRect(x, self.BOTTOM_MARGIN, self.ACTIVE_W, height)
+
+    def _streaming_frame(self, height: float):
+        x = (self._screen_w - self.STREAMING_W) / 2.0
+        return NSMakeRect(x, self.BOTTOM_MARGIN, self.STREAMING_W, height)
 
     def _result_frame(self, height: float):
         x = (self._screen_w - self.RESULT_W) / 2.0
@@ -774,6 +824,8 @@ class AuroraRenderer:
         self._sublabel.setStringValue_("")
 
     def _reset_text_layout(self) -> None:
+        self._label.setAlignment_(NSTextAlignmentCenter)
+        self._sublabel.setAlignment_(NSTextAlignmentCenter)
         content_w = self.RESULT_W - self.HORIZONTAL_INSET * 2
         self._label.setFrame_(
             NSMakeRect(
@@ -897,7 +949,9 @@ class OverlayStateMachine:
             self._label.setStringValue_(text)
         if self._sublabel is not None:
             self._sublabel.setStringValue_("实时识别中…")
-        self._show_text()
+        gen = self._dismiss_gen
+        if self._renderer is not None:
+            self._renderer.show_streaming_text(gen, text)
 
     def show_mode_switch(self, label: str) -> None:
         if not self._transition(OverlayState.MODE_SWITCH):
@@ -1011,7 +1065,7 @@ class OverlayPanel:
         self._panel.setBackgroundColor_(NSColor.clearColor())
         self._panel.setHasShadow_(False)
         self._panel.setLevel_(NSFloatingWindowLevel)
-        self._panel.setIgnoresMouseEvents_(True)
+        self._panel.setIgnoresMouseEvents_(False)
         behavior = (
             NSWindowCollectionBehaviorCanJoinAllSpaces
             | NSWindowCollectionBehaviorStationary
@@ -1125,6 +1179,10 @@ class OverlayPanel:
         if self._renderer is not None:
             self._renderer.set_level_fn(fn)
 
+    def set_click_handler(self, fn: Callable[[], None] | None) -> None:
+        if self._orb_view is not None:
+            self._orb_view._click_handler = fn
+
     def show_idle(self) -> None:
         diag("overlay_show_idle")
         self._state_machine.show_idle()
@@ -1132,6 +1190,10 @@ class OverlayPanel:
     def show_recording(self) -> None:
         diag("overlay_show_recording")
         self._state_machine.show_recording()
+
+    def show_streaming_text(self, text: str) -> None:
+        diag("overlay_show_streaming_text", text_len=len(text))
+        self._state_machine.show_streaming_text(text)
 
     def show_transcribing(self) -> None:
         diag("overlay_show_transcribing")

@@ -10,6 +10,7 @@ import sounddevice as sd
 import soundfile as sf
 
 from whisperkey_mac.config import AppConfig
+from whisperkey_mac.diagnostics import diag
 
 
 @dataclass
@@ -47,6 +48,7 @@ class AudioRecorder:
             self._config.temp_dir.mkdir(parents=True, exist_ok=True)
             self._frames = []
             self._smoothed_level = 0.0
+            self._chunk_diag_logged = False
             device = getattr(self._config, "input_device", "") or None
             self._stream = sd.InputStream(
                 samplerate=self._config.sample_rate,
@@ -118,7 +120,24 @@ class AudioRecorder:
         if chunk_cb is not None and self._recording:
             try:
                 # Convert float32 [-1.0, 1.0] to int16 PCM
-                pcm = (indata * 32767).astype(np.int16).tobytes()
+                flat = indata.flatten()
+                pcm = (flat * 32767).astype(np.int16).tobytes()
+                # Log first chunk diagnostics to verify audio data
+                if not getattr(self, '_chunk_diag_logged', False):
+                    self._chunk_diag_logged = True
+                    pcm_arr = np.frombuffer(pcm, dtype=np.int16)
+                    diag(
+                        "audio_chunk_diag",
+                        indata_shape=str(indata.shape),
+                        indata_dtype=str(indata.dtype),
+                        float_min=f"{float(flat.min()):.4f}",
+                        float_max=f"{float(flat.max()):.4f}",
+                        float_rms=f"{float(np.sqrt(np.mean(flat**2))):.6f}",
+                        pcm_bytes=len(pcm),
+                        pcm_min=int(pcm_arr.min()),
+                        pcm_max=int(pcm_arr.max()),
+                        pcm_nonzero=int(np.count_nonzero(pcm_arr)),
+                    )
                 chunk_cb(pcm)
             except Exception:
                 pass  # Never let streaming errors break recording

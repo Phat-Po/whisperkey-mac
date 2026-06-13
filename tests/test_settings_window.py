@@ -160,6 +160,10 @@ def test_prompt_mode_options_include_custom():
     assert ("custom", "Custom") in PROMPT_MODE_OPTIONS
 
 
+def test_prompt_mode_options_include_doubao_mode():
+    assert ("streaming", "Doubao Mode (Real-time)") in PROMPT_MODE_OPTIONS
+
+
 def test_custom_prompt_visibility_follows_selected_mode(nsapp):
     controller = build_settings_window_controller(
         AppConfig(online_prompt_mode="disabled"),

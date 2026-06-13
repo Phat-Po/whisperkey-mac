@@ -50,6 +50,7 @@ for package in [
     "soundfile",
     "pyperclip",
     "rich",
+    "websocket",
 ]:
     collect_package(package)
 
@@ -64,6 +65,7 @@ for distribution in [
     "pyobjc-core",
     "pyobjc-framework-Cocoa",
     "pyobjc-framework-ApplicationServices",
+    "websocket-client",
 ]:
     collect_distribution(distribution)
 

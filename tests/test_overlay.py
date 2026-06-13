@@ -41,7 +41,7 @@ def test_panel_flags(panel):
     """OVL-01: Verify all NSPanel structural flags are set correctly."""
     assert panel.isOpaque() is False, "Panel must not be opaque"
     assert panel.hasShadow() is False, "Panel must have no shadow"
-    assert panel.ignoresMouseEvents() is True, "Panel must be click-through"
+    assert panel.ignoresMouseEvents() is False, "Panel must accept clicks for recording controls"
     assert panel.level() == NSFloatingWindowLevel, (
         f"Panel level must be NSFloatingWindowLevel ({NSFloatingWindowLevel}), got {panel.level()}"
     )
@@ -349,6 +349,21 @@ def test_recording_stays_compact_ring_only():
     assert overlay._content_view.frame().size.height == overlay._renderer.ACTIVE_H
     assert overlay._label.isHidden() is True
     assert overlay._sublabel.isHidden() is True
+
+
+def test_streaming_text_expands_recording_bar():
+    overlay = OverlayPanel.create(result_max_lines=3)
+
+    with unittest.mock.patch("whisperkey_mac.overlay.callLater"):
+        overlay.show_idle()
+        overlay.show_recording()
+        overlay.show_streaming_text("豆包正在实时识别")
+
+    assert overlay._state_machine._state == OverlayState.RECORDING
+    assert overlay._panel.frame().size.width == overlay._renderer.STREAMING_W
+    assert overlay._label.stringValue() == "豆包正在实时识别"
+    assert overlay._label.isHidden() is False
+    assert overlay._sublabel.isHidden() is False
 
 
 def test_transcribing_stays_compact_ring_only():

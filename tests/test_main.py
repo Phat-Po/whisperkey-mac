@@ -13,9 +13,11 @@ from whisperkey_mac.service_controller import ServiceController
 class DummyService:
     is_busy = ServiceController.is_busy
     _start_recording = ServiceController._start_recording
+    _start_streaming_asr = ServiceController._start_streaming_asr
     _stop_and_transcribe = ServiceController._stop_and_transcribe
     _stop_and_transcribe_worker = ServiceController._stop_and_transcribe_worker
     _transcribe_and_inject = ServiceController._transcribe_and_inject
+    _process_and_inject_text = ServiceController._process_and_inject_text
     _hide_overlay_after_cancel = ServiceController._hide_overlay_after_cancel
     _frontmost_bundle_id = ServiceController._frontmost_bundle_id
     _should_attempt_direct_paste = ServiceController._should_attempt_direct_paste
@@ -166,6 +168,24 @@ def test_start_recording_ignores_when_service_is_processing():
     service._recorder.start.assert_not_called()
     service._hotkey.reset_state.assert_called_once_with()
     mock_dispatch.assert_not_called()
+
+
+def test_doubao_mode_does_not_fall_back_to_local_recording_when_streaming_unavailable():
+    service = _build_service()
+    service._config.online_prompt_mode = "streaming"
+    service._recorder = unittest.mock.MagicMock()
+    service._recorder.is_recording = False
+    service._hotkey = unittest.mock.MagicMock()
+    service._frontmost_bundle_id = unittest.mock.MagicMock(return_value="com.apple.TextEdit")
+    service._start_streaming_asr = unittest.mock.MagicMock(return_value=False)
+
+    with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main") as mock_dispatch:
+        service._start_recording()
+
+    service._start_streaming_asr.assert_called_once_with()
+    service._recorder.start.assert_not_called()
+    service._hotkey.reset_state.assert_called_once_with()
+    assert mock_dispatch.call_args_list[-1] == unittest.mock.call(service._overlay.show_idle)
 
 
 def test_should_attempt_direct_paste_blocks_finder_even_when_ax_matches():

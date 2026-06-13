@@ -181,6 +181,8 @@ def _prompt_mode(config: AppConfig) -> str:
     mode = getattr(config, "online_prompt_mode", "")
     if mode in {"disabled", "asr_correction", "custom", "voice_cleanup"}:
         return mode
+    if mode == "streaming":
+        return "voice_cleanup" if config.online_correct_enabled else "disabled"
     return "asr_correction" if config.online_correct_enabled else "disabled"
 
 

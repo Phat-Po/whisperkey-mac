@@ -20,6 +20,7 @@ from AppKit import (
     NSFont,
     NSMakeRect,
     NSMiniaturizableWindowMask,
+    NSPasteboard,
     NSPopUpButton,
     NSScrollView,
     NSSecureTextField,
@@ -45,7 +46,7 @@ PROMPT_MODE_OPTIONS = [
     ("asr_correction", "ASR Correction"),
     ("voice_cleanup", "Voice Cleanup"),
     ("custom", "Custom"),
-    ("streaming", "Real-time Streaming (Doubao)"),
+    ("streaming", "Doubao Mode (Real-time)"),
 ]
 
 LANGUAGE_OPTIONS = [
@@ -829,19 +830,25 @@ class SettingsWindowController(NSObject):
         self._doubao_app_id_field = self._field(
             view,
             getattr(self._config, "doubao_app_id", ""),
-            140, y - 2, 270,
+            140, y - 2, 220,
         )
+        paste_app_btn = self._small_button(view, _t("paste", lang), 365, y - 2, 54)
+        paste_app_btn.setTarget_(self)
+        paste_app_btn.setAction_("pasteDoubaoAppId:")
         y -= 36
 
         # Access Key (secure)
         self._lbl(view, _t("doubao_access_key", lang), 20, y)
         self._doubao_access_key_field = NSSecureTextField.alloc().initWithFrame_(
-            NSMakeRect(140.0, y - 2.0, 270.0, 24.0)
+            NSMakeRect(140.0, y - 2.0, 220.0, 24.0)
         )
         self._doubao_access_key_field.setStringValue_(
             getattr(self._config, "doubao_access_key", "")
         )
         view.addSubview_(self._doubao_access_key_field)
+        paste_key_btn = self._small_button(view, _t("paste", lang), 365, y - 2, 54)
+        paste_key_btn.setTarget_(self)
+        paste_key_btn.setAction_("pasteDoubaoAccessKey:")
         y -= 36
 
         # Cluster ID
@@ -849,8 +856,11 @@ class SettingsWindowController(NSObject):
         self._doubao_cluster_field = self._field(
             view,
             getattr(self._config, "doubao_cluster", "volc.bigasr.sauc.duration"),
-            140, y - 2, 270,
+            140, y - 2, 220,
         )
+        paste_cluster_btn = self._small_button(view, _t("paste", lang), 365, y - 2, 54)
+        paste_cluster_btn.setTarget_(self)
+        paste_cluster_btn.setAction_("pasteDoubaoCluster:")
         y -= 40
 
         # Test connection button + status
@@ -865,7 +875,7 @@ class SettingsWindowController(NSObject):
         app_id = getattr(self._config, "doubao_app_id", "")
         access_key = getattr(self._config, "doubao_access_key", "")
         if app_id and access_key:
-            status_text = _t("doubao_status_not_configured", lang)
+            status_text = _t("doubao_status_ready_to_test", lang)
         else:
             status_text = _t("doubao_status_not_configured", lang)
         self._doubao_status_label = self._lbl(view, status_text, 130, y, width=280)
@@ -887,6 +897,23 @@ class SettingsWindowController(NSObject):
 
         return self._tab_item(_t("doubao_tab_label", lang), view)
 
+    def pasteDoubaoAppId_(self, _sender) -> None:
+        self._paste_clipboard_into_field(self._doubao_app_id_field)
+
+    def pasteDoubaoAccessKey_(self, _sender) -> None:
+        self._paste_clipboard_into_field(self._doubao_access_key_field)
+
+    def pasteDoubaoCluster_(self, _sender) -> None:
+        self._paste_clipboard_into_field(self._doubao_cluster_field)
+
+    @objc.python_method
+    def _paste_clipboard_into_field(self, field) -> None:
+        text = NSPasteboard.generalPasteboard().stringForType_("public.utf8-plain-text")
+        if text is None:
+            text = NSPasteboard.generalPasteboard().stringForType_("NSStringPboardType")
+        if text:
+            field.setStringValue_(str(text).strip())
+
     def testDoubaoConnection_(self, _sender) -> None:
         """Validate Doubao config fields (non-blocking)."""
         from whisperkey_mac.doubao_asr import DoubaoConfig, is_configured
@@ -899,7 +926,7 @@ class SettingsWindowController(NSObject):
         cfg = DoubaoConfig(app_id=app_id, access_key=access_key)
         if is_configured(cfg):
             self._doubao_status_label.setStringValue_(
-                "✅ " + _t("doubao_status_connected", lang).replace("✅ ", "")
+                _t("doubao_status_connected", lang)
             )
         else:
             self._doubao_status_label.setStringValue_(
@@ -1345,6 +1372,14 @@ class SettingsWindowController(NSObject):
         p = NSPopUpButton.alloc().initWithFrame_pullsDown_(NSMakeRect(x, y, width, 26.0), False)
         parent.addSubview_(p)
         return p
+
+    @objc.python_method
+    def _small_button(self, parent, title: str, x: float, y: float, width: float = 54.0) -> NSButton:
+        b = NSButton.alloc().initWithFrame_(NSMakeRect(x, y, width, 24.0))
+        b.setTitle_(title)
+        b.setBezelStyle_(1)
+        parent.addSubview_(b)
+        return b
 
     @objc.python_method
     def _tab_item(self, label: str, view: NSView) -> NSTabViewItem:

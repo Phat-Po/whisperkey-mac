@@ -160,6 +160,7 @@ class ServiceController:
         from whisperkey_mac.overlay import OverlayPanel
 
         self._overlay = OverlayPanel.create(self._config.result_max_lines)
+        self._overlay.set_click_handler(self.toggle_recording_from_overlay)
         diag("overlay_create_end")
 
     def start_service(self) -> None:
@@ -257,6 +258,14 @@ class ServiceController:
 
     def _on_enter(self) -> None:
         self._output.send_enter()
+
+    def toggle_recording_from_overlay(self) -> None:
+        if not self._service_running:
+            return
+        if self._recorder.is_recording:
+            self._stop_and_transcribe()
+            return
+        self._start_recording()
 
     def cycle_online_prompt_mode(self) -> str:
         current_mode = getattr(self._config, "online_prompt_mode", "disabled")
@@ -393,7 +402,7 @@ class ServiceController:
 
     # ── Streaming ASR (Doubao) ──────────────────────────────────────────────
 
-    def _start_streaming_asr(self) -> None:
+    def _start_streaming_asr(self) -> bool:
         """Initialize and start Doubao streaming ASR, attach to recorder."""
         from whisperkey_mac.doubao_asr import DoubaoConfig, DoubaoStreamingASR, is_configured
 
@@ -404,7 +413,7 @@ class ServiceController:
         )
         if not is_configured(doubao_cfg):
             diag("streaming_asr_not_configured")
-            return
+            return False
 
         self._streaming_asr = DoubaoStreamingASR(doubao_cfg)
         self._streaming_text = ""
@@ -430,9 +439,11 @@ class ServiceController:
             # Attach chunk callback to recorder
             self._recorder.on_chunk = self._streaming_asr.feed_audio
             diag("streaming_asr_started")
+            return True
         else:
             diag("streaming_asr_start_failed")
             self._streaming_asr = None
+            return False
 
     def _stop_streaming_asr(self) -> str:
         """Stop Doubao streaming ASR and return the final text."""
@@ -448,8 +459,8 @@ class ServiceController:
         diag("streaming_asr_stopped", text_len=len(final_text))
         return final_text
 
-    def _inject_streaming_result(self, text: str, target_bundle_id: str | None = None) -> None:
-        """Inject the final streaming ASR result (skip Whisper + online correction)."""
+    def _process_and_inject_text(self, text: str, target_bundle_id: str | None = None) -> None:
+        """Apply text post-processing, then inject or copy the final text."""
         cfg = self._config
         lang = cfg.ui_language
 
@@ -457,26 +468,39 @@ class ServiceController:
         if word_fixed != text:
             print(f"[whisperkey] word replacements applied")
 
+        from whisperkey_mac.online_correct import maybe_correct_online
+
+        correction_started_at = time.monotonic()
+        diag("online_correction_start", mode=getattr(cfg, "online_prompt_mode", ""))
+        final_text = maybe_correct_online(word_fixed, cfg)
+        diag(
+            "online_correction_end",
+            elapsed_s=f"{time.monotonic() - correction_started_at:.2f}",
+            changed=final_text != word_fixed,
+        )
+        if final_text != word_fixed:
+            print(f"[whisperkey] {t('online_corrected', lang)}")
+
         if not hasattr(self, "_overlay") or self._overlay is None:
-            self._output.inject(word_fixed, target_bundle_id=target_bundle_id)
+            self._output.inject(final_text, target_bundle_id=target_bundle_id)
             return
 
         from whisperkey_mac.overlay import dispatch_to_main
 
-        print(f"[whisperkey] → {word_fixed!r}")
+        print(f"[whisperkey] → {final_text!r}")
         in_text_field = self._should_attempt_direct_paste()
 
         if in_text_field:
-            result = self._output.inject(word_fixed, target_bundle_id=target_bundle_id)
+            result = self._output.inject(final_text, target_bundle_id=target_bundle_id)
             if result in {"inserted", "applescript"}:
-                dispatch_to_main(self._overlay.show_result, word_fixed, "已输入", 1.2, 0.25)
+                dispatch_to_main(self._overlay.show_result, final_text, "已输入", 1.2, 0.25)
             else:
-                dispatch_to_main(self._overlay.show_result, word_fixed, "已复制到剪贴板", 3.0, 0.4)
+                dispatch_to_main(self._overlay.show_result, final_text, "已复制到剪贴板", 3.0, 0.4)
         else:
             import pyperclip
 
-            pyperclip.copy(word_fixed)
-            dispatch_to_main(self._overlay.show_result, word_fixed, "已复制到剪贴板", 3.0, 0.4)
+            pyperclip.copy(final_text)
+            dispatch_to_main(self._overlay.show_result, final_text, "已复制到剪贴板", 3.0, 0.4)
 
     def _start_recording(self) -> None:
         if not hasattr(self, "_overlay") or self._overlay is None:
@@ -494,7 +518,10 @@ class ServiceController:
 
         # Start streaming ASR if in streaming mode
         if getattr(self._config, "online_prompt_mode", "") == "streaming":
-            self._start_streaming_asr()
+            if not self._start_streaming_asr():
+                self._hide_overlay_after_cancel()
+                self._hotkey.reset_state()
+                return
 
         self._recorder.start()
         diag("recording_started")
@@ -570,7 +597,10 @@ class ServiceController:
                 text = self._stop_streaming_asr()
                 if text:
                     diag("streaming_transcribe_result", text_len=len(text))
-                    self._inject_streaming_result(text, target_bundle_id)
+                    from whisperkey_mac.overlay import dispatch_to_main
+
+                    dispatch_to_main(self._overlay.show_transcribing)
+                    self._process_and_inject_text(text, target_bundle_id)
                 else:
                     diag("streaming_transcribe_no_result")
                     self._hide_overlay_after_cancel()
@@ -625,50 +655,4 @@ class ServiceController:
                 self._hide_overlay_after_cancel()
                 return
 
-            word_fixed = _apply_word_replacements(text, getattr(cfg, "word_replacements", {}))
-            if word_fixed != text:
-                print(f"[whisperkey] word replacements applied")
-
-            from whisperkey_mac.online_correct import maybe_correct_online
-
-            correction_started_at = time.monotonic()
-            diag("online_correction_start", mode=getattr(cfg, "online_prompt_mode", ""))
-            final_text = maybe_correct_online(word_fixed, cfg)
-            diag(
-                "online_correction_end",
-                elapsed_s=f"{time.monotonic() - correction_started_at:.2f}",
-                changed=final_text != word_fixed,
-            )
-            if final_text != word_fixed:
-                print(f"[whisperkey] {t('online_corrected', lang)}")
-
-            if not hasattr(self, "_overlay") or self._overlay is None:
-                diag("inject_start", overlay=False, target_bundle_id=target_bundle_id)
-                self._output.inject(final_text, target_bundle_id=target_bundle_id)
-                diag("inject_end", overlay=False)
-                return
-
-            from whisperkey_mac.overlay import dispatch_to_main
-
-            print(f"[whisperkey] → {final_text!r}")
-
-            in_text_field = self._should_attempt_direct_paste()
-
-            if in_text_field:
-                diag("inject_start", overlay=True, target_bundle_id=target_bundle_id)
-                result = self._output.inject(final_text, target_bundle_id=target_bundle_id)
-                diag("inject_end", overlay=True, path=result)
-                print(f"[whisperkey] {t('injected', lang)} {result}.")
-                print(f"[whisperkey] inject_path={result}")
-                if result in {"inserted", "applescript"}:
-                    dispatch_to_main(self._overlay.show_result, final_text, "已输入", 1.2, 0.25)
-                else:
-                    dispatch_to_main(self._overlay.show_result, final_text, "已复制到剪贴板", 3.0, 0.4)
-            else:
-                import pyperclip
-
-                diag("inject_clipboard_start")
-                pyperclip.copy(final_text)
-                diag("inject_clipboard_end", path="clipboard")
-                print(f"[whisperkey] {t('injected', lang)} clipboard.")
-                dispatch_to_main(self._overlay.show_result, final_text, "已复制到剪贴板", 3.0, 0.4)
+            self._process_and_inject_text(text, target_bundle_id)

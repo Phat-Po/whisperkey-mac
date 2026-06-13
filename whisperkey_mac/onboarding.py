@@ -293,7 +293,8 @@ class OnboardingWindowController(NSObject):
             mic_row["icon"].setStringValue_("•")
             mic_row["detail"].setStringValue_(t("onboarding_unknown", lang))
 
-        ready = bool(ax_ok) and im_ok is not False
+        permissions_ready = bool(ax_ok) and im_ok is not False
+        ready = permissions_ready
         # Fallback: after 20 seconds, enable the restart button even if
         # AXIsProcessTrusted() returns False. This handles the case where
         # TCC records are stale (e.g. after self-update) and the API doesn't
@@ -302,9 +303,13 @@ class OnboardingWindowController(NSObject):
             diag("onboarding_fallback_enable_restart", tick=self._tick_count)
             ready = True
         self._restart_button.setEnabled_(ready)
-        self._footer.setStringValue_(
-            t("onboarding_all_granted", lang) if ready else t("onboarding_restart_hint", lang)
-        )
+        if permissions_ready:
+            footer = t("onboarding_all_granted", lang)
+        elif ready:
+            footer = t("onboarding_restart_fallback", lang)
+        else:
+            footer = t("onboarding_restart_hint", lang)
+        self._footer.setStringValue_(footer)
 
     def _set_row(self, key: str, *, granted: bool | None) -> None:
         lang = self._lang
