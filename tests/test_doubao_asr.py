@@ -118,6 +118,20 @@ def test_build_connect_message_has_no_app_field():
     assert "audio" in payload
 
 
+def test_build_connect_message_matches_working_reference_params():
+    """v3 bigmodel: result_type/show_utterances/force_to_speech_time must match
+    the proven-working reference, otherwise the engine returns empty text."""
+    asr = doubao_asr.DoubaoStreamingASR(doubao_asr.DoubaoConfig(
+        app_id="test", access_key="key", cluster="test-cluster",
+    ))
+    payload = json.loads(asr._build_connect_message()[8:])
+    req = payload["request"]
+
+    assert req["result_type"] == "single"
+    assert req["show_utterances"] is False
+    assert req["vad"]["force_to_speech_time"] == 100
+
+
 # ── Response parsing (v3 format) ────────────────────────────────────────────
 
 def test_parse_v3_server_response():
@@ -307,6 +321,47 @@ def test_client_handles_v3_partial_and_final():
     assert partials == ["hel"]
     assert finals == ["hello"]
     assert asr._final_text == "hello"
+
+
+def test_client_handles_v3_bigmodel_no_type_field():
+    """Real /sauc/bigmodel responses carry NO 'type' field and a dict 'result';
+    the final result is marked only by the NEG_SEQUENCE flag bit (flags=3), and
+    recognized text is cumulative. The last cumulative text must be returned."""
+    cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
+    asr = doubao_asr.DoubaoStreamingASR(cfg)
+    partials = []
+    finals = []
+    asr.on_partial = lambda t: partials.append(t)
+    asr.on_final = lambda t: finals.append(t)
+
+    def _resp(text, flags):
+        payload = {
+            "audio_info": {"duration": 3000},
+            "result": {"additions": {"log_id": "x"}, "text": text},
+        }
+        pb = json.dumps(payload, ensure_ascii=False).encode()
+        header = doubao_asr._build_header(
+            doubao_asr.MSG_TYPE_FULL_SERVER_RESPONSE,
+            flags=flags,
+            compression=doubao_asr.COMPRESSION_NONE,
+        )
+        return header + struct.pack(">I", 0) + struct.pack(">I", len(pb)) + pb
+
+    p1 = _resp("OK", doubao_asr.POS_SEQUENCE)
+    p2 = _resp("OK，我测试一下", doubao_asr.POS_SEQUENCE)
+    fin = _resp("OK，我测试一下有没有东西呀？",
+                doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
+
+    mock_ws = unittest.mock.MagicMock()
+    mock_ws.recv.side_effect = [p1, p2, fin, Exception("closed")]
+
+    with unittest.mock.patch("websocket.WebSocket", return_value=mock_ws):
+        asr.start()
+
+    final_text = asr.stop(timeout_s=2.0)
+    assert partials == ["OK", "OK，我测试一下"]
+    assert finals == ["OK，我测试一下有没有东西呀？"]
+    assert final_text == "OK，我测试一下有没有东西呀？"
 
 
 def test_client_handles_server_error():

@@ -352,13 +352,19 @@ class DoubaoStreamingASR:
             "request": {
                 "model_name": "bigmodel",
                 "language": "zh-CN",
-                "result_type": "full",
-                "show_utterances": True,
+                # Match the proven-working Volcengine reference config exactly.
+                # "single" (not "full") + show_utterances False is the response
+                # mode that actually emits recognized text; force_to_speech_time
+                # makes VAD commit a speech segment (without it the engine
+                # receives audio but never recognizes — empty text, 0 quota).
+                "result_type": "single",
+                "show_utterances": False,
                 "enable_itn": True,
                 "enable_punc": True,
                 "vad": {
                     "vad_enable": True,
                     "end_window_size": 2000,
+                    "force_to_speech_time": 100,
                 },
             },
         }
@@ -453,24 +459,6 @@ class DoubaoStreamingASR:
         """Parse and handle a server response."""
         msg_type, flags, payload = _parse_message(data)
 
-        # Log raw response for debugging
-        hex_head = data[:64].hex() if len(data) > 0 else ""
-        # Log payload content for debugging (full JSON, not truncated)
-        payload_str = ""
-        if payload is not None:
-            try:
-                payload_str = json.dumps(payload, ensure_ascii=False)[:300]
-            except Exception:
-                payload_str = str(payload)[:300]
-        diag(
-            "doubao_raw_response",
-            msg_type=msg_type,
-            flags=flags,
-            data_len=len(data),
-            has_payload=payload is not None,
-            payload_content=payload_str,
-        )
-
         if msg_type == MSG_TYPE_SERVER_ERROR:
             error_msg = str(payload) if payload else "Unknown server error"
             diag("doubao_server_error", error=error_msg, error_payload=payload)
@@ -521,13 +509,18 @@ class DoubaoStreamingASR:
         elif isinstance(result_data, str) and result_data.strip():
             text = result_data.strip()
 
-        is_final = resp_type == "final"
-
-        diag("doubao_text_extracted", text=text[:100] if text else "", is_final=is_final, result_type=type(result_data).__name__)
+        # The v3 bigmodel (/sauc) endpoint does NOT send a "type" field. It
+        # marks the final result by setting the NEG_SEQUENCE flag bit on the
+        # last response (observed flags=3 = POS_SEQUENCE | NEG_SEQUENCE). Older
+        # / other endpoints use a "type": "final" field, so honor both.
+        is_final = resp_type == "final" or bool(flags & NEG_SEQUENCE)
 
         if text:
+            # Recognized text is cumulative; always retain the latest so stop()
+            # returns the most complete result even if the final marker is
+            # missed (e.g. the socket closes right after the last partial).
+            self._final_text = text
             if is_final:
-                self._final_text = text
                 diag("doubao_final", text_len=len(text))
                 if self.on_final:
                     self.on_final(text)
