@@ -2,6 +2,32 @@
 
 ## Current
 
+### 2026-06-14 | Doubao empty-text FIXED (committed); packaged-app TLS-concurrency bug handed off
+
+Done this session:
+- Fixed the Doubao "empty text" blocker in `doubao_asr.py` (committed `56ce536`): request params aligned to the working reference (`result_type:"single"`, `show_utterances:false`, `vad.force_to_speech_time:100`); final detection now uses the `NEG_SEQUENCE` flag (the `/sauc/bigmodel` endpoint sends no `type` field); cumulative text retained. Removed flood logging.
+- Verified end-to-end in terminal: mic test returned real Chinese text. `281 tests pass`.
+- Rebuilt + installed the fixed app to `/Applications` (same signing cert, permissions persisted).
+- Diagnosed a NEW packaged-app-only failure: the Doubao WebSocket connects then drops immediately (`doubao_recv_error` → feed_error flood → empty). Isolated root cause to concurrent TLS read/write (recv thread + audio-callback send thread) that the app's bundled OpenSSL won't tolerate.
+- Saved protocol notes to memory `ref-doubao-v3-asr-protocol.md`; preserved debug scripts in `tasks/doubao-debug/`.
+
+Current state:
+- Terminal/venv Doubao path: ✅ works (params + protocol correct, proven 3 ways).
+- Packaged `/Applications/WhisperKey.app` (v3.2.3, 06-14 build): ⚠️ Doubao mode records but recognizes nothing — connection drops at audio start. Local Whisper mode unaffected. Repo clean at `56ce536`.
+- The fix is NOT yet implemented — handed off.
+
+Next steps:
+1. Implement single-thread socket I/O in `DoubaoStreamingASR`: `feed_audio` enqueues PCM; `_run_loop` becomes the only thread that sends+recvs (settimeout + drain queue). Full spec in `tasks/HANDOFF-20260614-doubao-app-tls-concurrency.md`.
+2. Update `tests/test_doubao_asr.py` mocks for the queue model; run `pytest`.
+3. Rebuild, reinstall to `/Applications` (update the SRC path in the install script first), test a real recording.
+
+Decisions / notes:
+- Do NOT change the request params or the `NEG_SEQUENCE` final-detection — proven correct.
+- Bug is packaged-app-only; venv tests only prove no-regression. True validation = rebuilt app.
+- Ruled out: rate/concurrency limit, chunk size, proxy/VPN env, missing module, certs.
+
+---
+
 ### 2026-06-14 | Doubao Mode UX implemented, packaged test fails streaming/no-output
 
 Done this session:
