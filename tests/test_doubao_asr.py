@@ -393,16 +393,35 @@ def test_client_handles_server_error():
     assert asr._final_text == ""
 
 
-def test_feed_audio_enqueues_without_socket_access():
-    """feed_audio must only enqueue, never touch the socket."""
+def test_feed_audio_coalesces_before_enqueue_without_socket_access():
+    """feed_audio must coalesce tiny callback fragments and never touch the socket."""
+    cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
+    asr = doubao_asr.DoubaoStreamingASR(cfg)
+    asr._running = True
+    fragment = b"\x00" * 28
+
+    for _ in range(doubao_asr.CHUNK_BYTES // len(fragment)):
+        asr.feed_audio(fragment)
+    assert asr._audio_queue.qsize() == 0
+
+    asr.feed_audio(fragment)
+    assert asr._audio_queue.qsize() == 1
+    assert len(asr._audio_queue.get_nowait()) == doubao_asr.CHUNK_BYTES
+
+
+def test_finish_flushes_partial_audio_before_sentinel():
+    """finish() must send buffered tail audio before the end sentinel."""
     cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
     asr = doubao_asr.DoubaoStreamingASR(cfg)
     asr._running = True
     pcm = b"\x00" * 320
+
     asr.feed_audio(pcm)
-    asr.feed_audio(pcm)
-    assert asr._audio_queue.qsize() == 2
+    assert asr._audio_queue.qsize() == 0
+    asr.finish()
+
     assert asr._audio_queue.get_nowait() == pcm
+    assert asr._audio_queue.get_nowait() is None
 
 
 def test_finish_enqueues_sentinel():

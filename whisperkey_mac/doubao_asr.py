@@ -242,6 +242,10 @@ class DoubaoStreamingASR:
         self._connect_failed = threading.Event()
         self._finished = threading.Event()
         self._audio_queue: queue.Queue[bytes | None] = queue.Queue()
+        self._audio_buffer_lock = threading.Lock()
+        self._audio_buffer = bytearray()
+        self._audio_input_count = 0
+        self._audio_enqueued_count = 0
 
         # Callbacks
         self.on_partial: PartialCallback | None = None
@@ -263,6 +267,10 @@ class DoubaoStreamingASR:
         self._reqid = str(uuid.uuid4())
         self._final_text = ""
         self._audio_queue = queue.Queue()
+        with self._audio_buffer_lock:
+            self._audio_buffer = bytearray()
+            self._audio_input_count = 0
+        self._audio_enqueued_count = 0
         self._running = True
         self._connected.clear()
         self._connect_failed.clear()
@@ -290,16 +298,53 @@ class DoubaoStreamingASR:
         return True
 
     def feed_audio(self, pcm_chunk: bytes) -> None:
-        """Enqueue a PCM audio chunk for the I/O thread to send."""
+        """Coalesce PCM fragments and enqueue send-sized chunks for the I/O thread."""
         if not self._running:
             return
-        self._audio_queue.put(pcm_chunk)
+        with self._audio_buffer_lock:
+            self._audio_input_count += 1
+            self._audio_buffer.extend(pcm_chunk)
+            while len(self._audio_buffer) >= CHUNK_BYTES:
+                chunk = bytes(self._audio_buffer[:CHUNK_BYTES])
+                del self._audio_buffer[:CHUNK_BYTES]
+                self._audio_queue.put(chunk)
+                self._audio_enqueued_count += 1
+                if self._audio_enqueued_count == 1 or self._audio_enqueued_count % 10 == 0:
+                    diag(
+                        "doubao_audio_enqueued",
+                        count=self._audio_enqueued_count,
+                        input_count=self._audio_input_count,
+                        chunk_bytes=len(chunk),
+                        pending_bytes=len(self._audio_buffer),
+                        queue_size=self._audio_queue.qsize(),
+                    )
 
     def finish(self) -> None:
         """Signal end of audio stream (enqueue sentinel for the I/O thread)."""
         if not self._running:
             return
+        with self._audio_buffer_lock:
+            if self._audio_buffer:
+                chunk = bytes(self._audio_buffer)
+                self._audio_buffer.clear()
+                self._audio_queue.put(chunk)
+                self._audio_enqueued_count += 1
+                diag(
+                    "doubao_audio_enqueued",
+                    count=self._audio_enqueued_count,
+                    input_count=self._audio_input_count,
+                    chunk_bytes=len(chunk),
+                    pending_bytes=0,
+                    queue_size=self._audio_queue.qsize(),
+                    final_flush=True,
+                )
         self._audio_queue.put(None)
+        diag(
+            "doubao_finish_enqueued",
+            audio_enqueued_count=self._audio_enqueued_count,
+            input_count=self._audio_input_count,
+            queue_size=self._audio_queue.qsize(),
+        )
 
     def stop(self, timeout_s: float = 5.0) -> str:
         """Stop the client and return the final transcription text."""
@@ -419,6 +464,10 @@ class DoubaoStreamingASR:
 
             self._ws.settimeout(0.1)
             end_sent = False
+            stream_started_at = time.monotonic()
+            audio_sent_count = 0
+            audio_sent_bytes = 0
+            last_audio_sent_at: float | None = None
 
             while self._running and not self._finished.is_set():
                 # --- drain queued audio chunks → send on this thread ---
@@ -430,13 +479,36 @@ class DoubaoStreamingASR:
                     if chunk is None:
                         try:
                             self._ws.send_binary(self._build_end_message())
-                            diag("doubao_finish_sent")
+                            now = time.monotonic()
+                            diag(
+                                "doubao_finish_sent",
+                                audio_sent_count=audio_sent_count,
+                                audio_sent_bytes=audio_sent_bytes,
+                                queue_size=self._audio_queue.qsize(),
+                                elapsed_ms=int((now - stream_started_at) * 1000),
+                                since_last_audio_ms=(
+                                    "none" if last_audio_sent_at is None
+                                    else int((now - last_audio_sent_at) * 1000)
+                                ),
+                            )
                         except Exception as exc:
                             diag("doubao_finish_error", error=str(exc))
                         end_sent = True
                         break
                     try:
                         self._ws.send_binary(self._build_audio_message(chunk))
+                        audio_sent_count += 1
+                        audio_sent_bytes += len(chunk)
+                        last_audio_sent_at = time.monotonic()
+                        if audio_sent_count == 1 or audio_sent_count % 10 == 0:
+                            diag(
+                                "doubao_audio_sent",
+                                count=audio_sent_count,
+                                chunk_bytes=len(chunk),
+                                total_bytes=audio_sent_bytes,
+                                queue_size=self._audio_queue.qsize(),
+                                elapsed_ms=int((last_audio_sent_at - stream_started_at) * 1000),
+                            )
                     except Exception as exc:
                         diag("doubao_feed_error", error=str(exc))
                         self._running = False
@@ -460,6 +532,16 @@ class DoubaoStreamingASR:
 
                 if end_sent and self._finished.is_set():
                     break
+
+            diag(
+                "doubao_loop_exit",
+                end_sent=end_sent,
+                running=self._running,
+                finished=self._finished.is_set(),
+                queue_size=self._audio_queue.qsize(),
+                audio_sent_count=audio_sent_count,
+                audio_sent_bytes=audio_sent_bytes,
+            )
 
         except Exception as exc:
             diag("doubao_connect_error", error=str(exc))
