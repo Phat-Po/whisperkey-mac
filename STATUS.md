@@ -2,6 +2,28 @@
 
 ## Current
 
+### 2026-06-14 | Single-thread I/O fix applied; TLS crash fixed but audio not recognized in app
+
+Done this session:
+- Implemented single-thread socket I/O in `DoubaoStreamingASR` (commit `a6ce19c`): `feed_audio` now enqueues PCM to a `queue.Queue`; `_run_loop` is the sole socket owner (drain queue → send → recv with 100ms timeout). Removed `self._lock` and multi-thread send/recv.
+- Updated `tests/test_doubao_asr.py` with `WebSocketTimeoutException` mocking and 2 new tests.
+- 283 tests pass. Rebuilt app, installed to `/Applications`.
+
+Current state:
+- TLS race crash is **FIXED** — no more `doubao_recv_error` on audio start.
+- **New problem**: audio chunks queue up but server never returns recognized text. All 3 test recordings end with `streaming_asr_stopped text_len=0`. No `doubao_partial` or `doubao_final` events fire. Most likely the `_run_loop` drain-then-recv cycle has a timing issue (audio sent too late / in burst / loop stuck in recv).
+- Local Whisper mode unaffected.
+
+Next steps:
+1. Diagnose why audio never produces recognition: add diag events in `_run_loop` to confirm chunks are actually sent and when. See 3 hypotheses in `tasks/HANDOFF-20260614-doubao-app-audio-never-recognized.md`.
+2. Fix the loop timing, rebuild, reinstall, test.
+
+Decisions / notes:
+- Do NOT revert to multi-thread I/O — TLS crash is real and confirmed fixed.
+- Request params and NEG_SEQUENCE final-detection remain correct (proven in terminal).
+
+---
+
 ### 2026-06-14 | Doubao empty-text FIXED (committed); packaged-app TLS-concurrency bug handed off
 
 Done this session:
