@@ -5,6 +5,8 @@ import json
 import struct
 import unittest.mock
 
+import websocket as _websocket_mod
+
 from whisperkey_mac import doubao_asr
 
 
@@ -311,8 +313,9 @@ def test_client_handles_v3_partial_and_final():
     )
     final_msg = final_header + struct.pack(">I", 0) + struct.pack(">I", len(final_bytes)) + final_bytes
 
+    _timeout = _websocket_mod.WebSocketTimeoutException
     mock_ws = unittest.mock.MagicMock()
-    mock_ws.recv.side_effect = [partial_msg, final_msg, Exception("closed")]
+    mock_ws.recv.side_effect = [_timeout(), partial_msg, _timeout(), final_msg, Exception("closed")]
 
     with unittest.mock.patch("websocket.WebSocket", return_value=mock_ws):
         asr.start()
@@ -352,8 +355,9 @@ def test_client_handles_v3_bigmodel_no_type_field():
     fin = _resp("OK，我测试一下有没有东西呀？",
                 doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
 
+    _timeout = _websocket_mod.WebSocketTimeoutException
     mock_ws = unittest.mock.MagicMock()
-    mock_ws.recv.side_effect = [p1, p2, fin, Exception("closed")]
+    mock_ws.recv.side_effect = [_timeout(), p1, _timeout(), p2, fin, Exception("closed")]
 
     with unittest.mock.patch("websocket.WebSocket", return_value=mock_ws):
         asr.start()
@@ -387,3 +391,24 @@ def test_client_handles_server_error():
     asr.stop(timeout_s=2.0)
     assert len(errors) >= 1
     assert asr._final_text == ""
+
+
+def test_feed_audio_enqueues_without_socket_access():
+    """feed_audio must only enqueue, never touch the socket."""
+    cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
+    asr = doubao_asr.DoubaoStreamingASR(cfg)
+    asr._running = True
+    pcm = b"\x00" * 320
+    asr.feed_audio(pcm)
+    asr.feed_audio(pcm)
+    assert asr._audio_queue.qsize() == 2
+    assert asr._audio_queue.get_nowait() == pcm
+
+
+def test_finish_enqueues_sentinel():
+    """finish() must enqueue None sentinel, not send on the socket."""
+    cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
+    asr = doubao_asr.DoubaoStreamingASR(cfg)
+    asr._running = True
+    asr.finish()
+    assert asr._audio_queue.get_nowait() is None

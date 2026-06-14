@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import queue
 import struct
 import threading
 import time
@@ -236,12 +237,11 @@ class DoubaoStreamingASR:
         self._thread: threading.Thread | None = None
         self._running = False
         self._reqid = ""
-        self._sequence = 0
         self._final_text = ""
         self._connected = threading.Event()
         self._connect_failed = threading.Event()
         self._finished = threading.Event()
-        self._lock = threading.Lock()
+        self._audio_queue: queue.Queue[bytes | None] = queue.Queue()
 
         # Callbacks
         self.on_partial: PartialCallback | None = None
@@ -261,8 +261,8 @@ class DoubaoStreamingASR:
             return False
 
         self._reqid = str(uuid.uuid4())
-        self._sequence = 0
         self._final_text = ""
+        self._audio_queue = queue.Queue()
         self._running = True
         self._connected.clear()
         self._connect_failed.clear()
@@ -290,30 +290,16 @@ class DoubaoStreamingASR:
         return True
 
     def feed_audio(self, pcm_chunk: bytes) -> None:
-        """Send a PCM audio chunk to the streaming ASR."""
-        if not self._running or self._ws is None:
+        """Enqueue a PCM audio chunk for the I/O thread to send."""
+        if not self._running:
             return
-
-        with self._lock:
-            try:
-                msg = self._build_audio_message(pcm_chunk)
-                self._ws.send_binary(msg)
-                self._sequence += 1
-            except Exception as exc:
-                diag("doubao_feed_error", error_type=type(exc).__name__)
+        self._audio_queue.put(pcm_chunk)
 
     def finish(self) -> None:
-        """Signal end of audio stream."""
-        if not self._running or self._ws is None:
+        """Signal end of audio stream (enqueue sentinel for the I/O thread)."""
+        if not self._running:
             return
-
-        with self._lock:
-            try:
-                msg = self._build_end_message()
-                self._ws.send_binary(msg)
-                diag("doubao_finish_sent")
-            except Exception as exc:
-                diag("doubao_finish_error", error_type=type(exc).__name__)
+        self._audio_queue.put(None)
 
     def stop(self, timeout_s: float = 5.0) -> str:
         """Stop the client and return the final transcription text."""
@@ -401,7 +387,12 @@ class DoubaoStreamingASR:
         )
 
     def _run_loop(self) -> None:
-        """WebSocket receive loop (runs in background thread)."""
+        """Single-threaded WebSocket I/O loop (send queued audio + recv responses).
+
+        All socket access happens here — feed_audio/finish only enqueue data.
+        This avoids concurrent TLS read+write which breaks under PyInstaller's
+        bundled OpenSSL.
+        """
         try:
             import websocket
 
@@ -420,28 +411,58 @@ class DoubaoStreamingASR:
                 timeout=10.0,
             )
 
-            # Send initial request
             init_msg = self._build_connect_message()
             self._ws.send_binary(init_msg)
 
-            # Connection successful
             self._connected.set()
             diag("doubao_connected", connect_id=connect_id)
 
-            # Receive loop
-            while self._running:
+            self._ws.settimeout(0.1)
+            end_sent = False
+
+            while self._running and not self._finished.is_set():
+                # --- drain queued audio chunks → send on this thread ---
+                while True:
+                    try:
+                        chunk = self._audio_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    if chunk is None:
+                        try:
+                            self._ws.send_binary(self._build_end_message())
+                            diag("doubao_finish_sent")
+                        except Exception as exc:
+                            diag("doubao_finish_error", error=str(exc))
+                        end_sent = True
+                        break
+                    try:
+                        self._ws.send_binary(self._build_audio_message(chunk))
+                    except Exception as exc:
+                        diag("doubao_feed_error", error=str(exc))
+                        self._running = False
+                        break
+
+                if not self._running:
+                    break
+
+                # --- recv one response (short timeout so we loop back to send) ---
                 try:
                     data = self._ws.recv()
                     if isinstance(data, str):
                         data = data.encode("utf-8")
                     self._handle_response(data)
+                except websocket.WebSocketTimeoutException:
+                    pass
                 except Exception as exc:
                     if self._running:
-                        diag("doubao_recv_error", error_type=type(exc).__name__)
+                        diag("doubao_recv_error", error=str(exc))
+                    break
+
+                if end_sent and self._finished.is_set():
                     break
 
         except Exception as exc:
-            diag("doubao_connect_error", error_type=type(exc).__name__)
+            diag("doubao_connect_error", error=str(exc))
             if self.on_error:
                 self.on_error(f"Connection failed: {exc}")
             self._connect_failed.set()
