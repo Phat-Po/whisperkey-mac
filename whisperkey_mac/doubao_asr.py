@@ -216,6 +216,21 @@ def _find_payload_fallback(data: bytes, compression: int) -> bytes:
     return data
 
 
+# ── Utterance accumulation ─────────────────────────────────────────────────
+
+def _is_utterance_continuation(current: str, incoming: str) -> bool:
+    """True if *incoming* is a cumulative extension or correction of *current*.
+
+    Within a single Doubao utterance, partials grow cumulatively
+    ("OK" → "OK，测试").  At utterance boundaries the text resets to a
+    completely new sentence.  We detect continuation by checking whether
+    either string is a prefix of the other.
+    """
+    if not current:
+        return True
+    return incoming.startswith(current) or current.startswith(incoming)
+
+
 # ── Streaming ASR client ────────────────────────────────────────────────────
 
 class DoubaoStreamingASR:
@@ -238,6 +253,8 @@ class DoubaoStreamingASR:
         self._running = False
         self._reqid = ""
         self._final_text = ""
+        self._utterances: list[str] = []
+        self._current_text = ""
         self._connected = threading.Event()
         self._connect_failed = threading.Event()
         self._finished = threading.Event()
@@ -266,6 +283,8 @@ class DoubaoStreamingASR:
 
         self._reqid = str(uuid.uuid4())
         self._final_text = ""
+        self._utterances = []
+        self._current_text = ""
         self._audio_queue = queue.Queue()
         with self._audio_buffer_lock:
             self._audio_buffer = bytearray()
@@ -619,21 +638,27 @@ class DoubaoStreamingASR:
         is_final = resp_type == "final" or bool(flags & NEG_SEQUENCE)
 
         if text:
-            # Recognized text is cumulative; always retain the latest so stop()
-            # returns the most complete result even if the final marker is
-            # missed (e.g. the socket closes right after the last partial).
-            self._final_text = text
+            if not _is_utterance_continuation(self._current_text, text):
+                if self._current_text:
+                    self._utterances.append(self._current_text)
+            self._current_text = text
+
             if is_final:
-                diag("doubao_final", text_len=len(text))
+                if not self._utterances or self._utterances[-1] != text:
+                    self._utterances.append(text)
+                self._final_text = "\n".join(self._utterances)
+                diag("doubao_final", text_len=len(text), total_len=len(self._final_text))
                 if self.on_final:
-                    self.on_final(text)
+                    self.on_final(self._final_text)
                 self._finished.set()
             else:
+                self._final_text = "\n".join(self._utterances + [text]) if self._utterances else text
                 diag("doubao_partial", text_len=len(text))
                 if self.on_partial:
                     self.on_partial(text)
         elif is_final:
-            # Server marked final but no text (silence)
+            if self._utterances:
+                self._final_text = "\n".join(self._utterances)
             self._finished.set()
 
 

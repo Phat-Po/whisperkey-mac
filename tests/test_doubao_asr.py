@@ -237,6 +237,22 @@ def test_is_configured_true_when_set():
 
 # ── Cost estimation ──────────────────────────────────────────────────────────
 
+def test_is_utterance_continuation_empty_current():
+    assert doubao_asr._is_utterance_continuation("", "hello") is True
+
+
+def test_is_utterance_continuation_cumulative():
+    assert doubao_asr._is_utterance_continuation("OK", "OK，测试") is True
+
+
+def test_is_utterance_continuation_correction_shorter():
+    assert doubao_asr._is_utterance_continuation("OK，测试一下", "OK，测试") is True
+
+
+def test_is_utterance_continuation_new_sentence():
+    assert doubao_asr._is_utterance_continuation("好的，功能上线了。", "鉴别我们的") is False
+
+
 def test_estimate_cost():
     cost = doubao_asr.estimate_cost(60.0)
     assert abs(cost - 1.98) < 0.01
@@ -326,10 +342,23 @@ def test_client_handles_v3_partial_and_final():
     assert asr._final_text == "hello"
 
 
+def _v3_resp(text, flags):
+    """Build a v3 bigmodel server response (no 'type' field, dict result)."""
+    payload = {
+        "audio_info": {"duration": 3000},
+        "result": {"additions": {"log_id": "x"}, "text": text},
+    }
+    pb = json.dumps(payload, ensure_ascii=False).encode()
+    header = doubao_asr._build_header(
+        doubao_asr.MSG_TYPE_FULL_SERVER_RESPONSE,
+        flags=flags,
+        compression=doubao_asr.COMPRESSION_NONE,
+    )
+    return header + struct.pack(">I", 0) + struct.pack(">I", len(pb)) + pb
+
+
 def test_client_handles_v3_bigmodel_no_type_field():
-    """Real /sauc/bigmodel responses carry NO 'type' field and a dict 'result';
-    the final result is marked only by the NEG_SEQUENCE flag bit (flags=3), and
-    recognized text is cumulative. The last cumulative text must be returned."""
+    """Single utterance with cumulative partials returns one complete final."""
     cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
     asr = doubao_asr.DoubaoStreamingASR(cfg)
     partials = []
@@ -337,23 +366,10 @@ def test_client_handles_v3_bigmodel_no_type_field():
     asr.on_partial = lambda t: partials.append(t)
     asr.on_final = lambda t: finals.append(t)
 
-    def _resp(text, flags):
-        payload = {
-            "audio_info": {"duration": 3000},
-            "result": {"additions": {"log_id": "x"}, "text": text},
-        }
-        pb = json.dumps(payload, ensure_ascii=False).encode()
-        header = doubao_asr._build_header(
-            doubao_asr.MSG_TYPE_FULL_SERVER_RESPONSE,
-            flags=flags,
-            compression=doubao_asr.COMPRESSION_NONE,
-        )
-        return header + struct.pack(">I", 0) + struct.pack(">I", len(pb)) + pb
-
-    p1 = _resp("OK", doubao_asr.POS_SEQUENCE)
-    p2 = _resp("OK，我测试一下", doubao_asr.POS_SEQUENCE)
-    fin = _resp("OK，我测试一下有没有东西呀？",
-                doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
+    p1 = _v3_resp("OK", doubao_asr.POS_SEQUENCE)
+    p2 = _v3_resp("OK，我测试一下", doubao_asr.POS_SEQUENCE)
+    fin = _v3_resp("OK，我测试一下有没有东西呀？",
+                   doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
 
     _timeout = _websocket_mod.WebSocketTimeoutException
     mock_ws = unittest.mock.MagicMock()
@@ -366,6 +382,81 @@ def test_client_handles_v3_bigmodel_no_type_field():
     assert partials == ["OK", "OK，我测试一下"]
     assert finals == ["OK，我测试一下有没有东西呀？"]
     assert final_text == "OK，我测试一下有没有东西呀？"
+
+
+def test_multi_utterance_accumulates_all_sentences():
+    """Multiple utterances (text resets at each boundary, all POS_SEQUENCE until
+    stream end NEG_SEQUENCE) must be joined so stop() returns the full transcript."""
+    cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
+    asr = doubao_asr.DoubaoStreamingASR(cfg)
+    partials = []
+    finals = []
+    asr.on_partial = lambda t: partials.append(t)
+    asr.on_final = lambda t: finals.append(t)
+
+    # Utterance 1: cumulative partials
+    u1_p1 = _v3_resp("好的", doubao_asr.POS_SEQUENCE)
+    u1_p2 = _v3_resp("好的，我们这个新的功能已经上线了。", doubao_asr.POS_SEQUENCE)
+    # Utterance 2: text resets (new sentence, still POS_SEQUENCE)
+    u2_p1 = _v3_resp("鉴别我们的", doubao_asr.POS_SEQUENCE)
+    u2_p2 = _v3_resp("鉴别我们的这个讲话的字。", doubao_asr.POS_SEQUENCE)
+    # Utterance 3: text resets again, then stream ends with NEG_SEQUENCE
+    u3_fin = _v3_resp("但他有一个免费的使用。",
+                      doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
+
+    _timeout = _websocket_mod.WebSocketTimeoutException
+    mock_ws = unittest.mock.MagicMock()
+    mock_ws.recv.side_effect = [
+        u1_p1, u1_p2,
+        _timeout(),
+        u2_p1, u2_p2,
+        u3_fin,
+        Exception("closed"),
+    ]
+
+    with unittest.mock.patch("websocket.WebSocket", return_value=mock_ws):
+        asr.start()
+
+    final_text = asr.stop(timeout_s=2.0)
+
+    assert partials == ["好的", "好的，我们这个新的功能已经上线了。",
+                        "鉴别我们的", "鉴别我们的这个讲话的字。"]
+    expected = "好的，我们这个新的功能已经上线了。\n鉴别我们的这个讲话的字。\n但他有一个免费的使用。"
+    assert final_text == expected
+    assert finals[-1] == expected
+
+
+def test_multi_utterance_partial_callback_shows_current_sentence_only():
+    """on_partial receives only the current sentence, not the joined full transcript."""
+    cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
+    asr = doubao_asr.DoubaoStreamingASR(cfg)
+    partials = []
+    asr.on_partial = lambda t: partials.append(t)
+    asr.on_final = lambda _: None
+
+    u1_p1 = _v3_resp("第一句话。", doubao_asr.POS_SEQUENCE)
+    # Text resets → new utterance
+    u2_partial = _v3_resp("第二句", doubao_asr.POS_SEQUENCE)
+    u2_fin = _v3_resp("第二句话。",
+                      doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
+
+    mock_ws = unittest.mock.MagicMock()
+    mock_ws.recv.side_effect = [u1_p1, u2_partial, u2_fin, Exception("closed")]
+
+    with unittest.mock.patch("websocket.WebSocket", return_value=mock_ws):
+        asr.start()
+
+    asr.stop(timeout_s=2.0)
+    assert partials == ["第一句话。", "第二句"]
+
+
+def test_stop_returns_all_finalized_utterances():
+    """stop() must return concatenated text from all utterance finals."""
+    asr = doubao_asr.DoubaoStreamingASR(doubao_asr.DoubaoConfig())
+    asr._utterances = ["句子一。", "句子二。"]
+    asr._final_text = "句子一。\n句子二。"
+    asr._finished.set()
+    assert asr.stop() == "句子一。\n句子二。"
 
 
 def test_client_handles_server_error():
