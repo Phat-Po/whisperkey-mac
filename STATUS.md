@@ -2,6 +2,29 @@
 
 ## Current
 
+### 2026-06-15 | Doubao ASR engine refactor installed; next fix is utterance accumulation
+
+Done this session:
+- Refactored Doubao from a processing mode into a dedicated ASR engine (`asr_engine=local|doubao`) while keeping post-recognition processing mode separate.
+- Verified the refactor with full tests (`290 passed`), packaged the macOS app, installed it to `/Applications/WhisperKey.app`, and verified code signature.
+- Analyzed the operator's 47s overlay recording and identified that Doubao live results behave like current utterance text, not full cumulative transcript text.
+- Created the next handoff: `tasks/HANDOFF-20260615-doubao-streaming-utterance-accumulation.md`.
+
+Current state:
+The installed app is WhisperKey `3.2.3` with build time `2026-06-14 17:51:03`. Doubao can now be selected as a speech recognition engine, and processing mode remains `voice_cleanup` / ASR correction / custom / disabled. The next known bug is that Doubao final output can contain only the last sentence because `DoubaoStreamingASR` overwrites `_final_text` with each latest response.
+
+Next steps:
+1. Preserve the current ASR-engine refactor snapshot and start from the new handoff.
+2. Update `DoubaoStreamingASR` so final transcript accumulates finalized utterances while live overlay can keep showing only the current sentence.
+3. Add regression tests for multi-utterance Doubao responses, then run full tests and rebuild the app.
+
+Decisions / notes:
+- Do not add Summary behavior; current expected post-processing is `voice_cleanup`.
+- Do not change Doubao protocol params, single-thread WebSocket I/O, or PCM coalescing unless evidence requires it.
+- Installing to `/Applications` and `git push` remain confirm-first actions.
+
+---
+
 ### 2026-06-14 | Doubao packaged-app live ASR fixed; next step is ASR-engine UX refactor
 
 Done this session:

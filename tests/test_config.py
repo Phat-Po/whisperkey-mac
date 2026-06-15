@@ -6,6 +6,7 @@ from whisperkey_mac.config import AppConfig, load_config, save_config
 
 def test_online_prompt_mode_defaults_disabled():
     cfg = AppConfig()
+    assert cfg.asr_engine == "local"
     assert cfg.online_prompt_mode == "disabled"
     assert cfg.launch_at_login is False
     assert cfg.mode_cycle_keys == []
@@ -39,6 +40,28 @@ def test_load_config_validates_mode_cycle_fields(tmp_path, monkeypatch):
     assert cfg.mode_cycle_targets == ["asr_correction", "voice_cleanup"]
 
 
+def test_load_config_migrates_legacy_streaming_mode_to_asr_engine(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"online_prompt_mode": "streaming"}))
+    monkeypatch.setattr(config_module, "CONFIG_PATH", config_path)
+
+    cfg = load_config()
+
+    assert cfg.asr_engine == "doubao"
+    assert cfg.online_prompt_mode == "voice_cleanup"
+    assert cfg.online_correct_enabled is True
+
+
+def test_load_config_rejects_unknown_asr_engine(tmp_path, monkeypatch):
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps({"asr_engine": "unknown"}))
+    monkeypatch.setattr(config_module, "CONFIG_PATH", config_path)
+
+    cfg = load_config()
+
+    assert cfg.asr_engine == "local"
+
+
 def test_save_config_persists_mode_cycle_fields(tmp_path, monkeypatch):
     config_path = tmp_path / "config.json"
     monkeypatch.setattr(config_module, "CONFIG_PATH", config_path)
@@ -51,6 +74,7 @@ def test_save_config_persists_mode_cycle_fields(tmp_path, monkeypatch):
     )
 
     data = json.loads(config_path.read_text())
+    assert data["asr_engine"] == "local"
     assert data["mode_cycle_keys"] == ["cmd", "shift", "char:m"]
     assert data["mode_cycle_targets"] == ["disabled", "voice_cleanup"]
 

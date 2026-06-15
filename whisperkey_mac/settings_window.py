@@ -46,7 +46,11 @@ PROMPT_MODE_OPTIONS = [
     ("asr_correction", "ASR Correction"),
     ("voice_cleanup", "Voice Cleanup"),
     ("custom", "Custom"),
-    ("streaming", "Doubao Mode (Real-time)"),
+]
+
+ASR_ENGINE_OPTIONS = [
+    ("local", "Local Whisper"),
+    ("doubao", "Doubao Streaming ASR"),
 ]
 
 LANGUAGE_OPTIONS = [
@@ -650,7 +654,16 @@ class SettingsWindowController(NSObject):
         self._hint(view, _t("settings_general_output_hint", lang), 190, y, width=230)
         y -= 28
 
-        self._lbl(view, "Whisper Model", 20, y)
+        self._lbl(view, "Speech Engine", 20, y)
+        self._asr_engine_popup = self._popup(view, 190, y - 4, 180)
+        self._asr_engine_popup.addItemsWithTitles_([t for _, t in ASR_ENGINE_OPTIONS])
+        sel = next((t for v, t in ASR_ENGINE_OPTIONS if v == getattr(self._config, "asr_engine", "local")), "Local Whisper")
+        self._asr_engine_popup.selectItemWithTitle_(sel)
+        y -= 22
+        self._hint(view, _t("settings_general_asr_engine_hint", lang), 190, y, width=230)
+        y -= 28
+
+        self._lbl(view, "Local Whisper Model", 20, y)
         self._model_popup = self._popup(view, 190, y - 4, 160)
         self._model_popup.addItemsWithTitles_(MODEL_OPTIONS)
         self._model_popup.selectItemWithTitle_(self._config.model_size)
@@ -1081,6 +1094,9 @@ class SettingsWindowController(NSObject):
         output_lang_title = self._output_lang_popup.titleOfSelectedItem()
         output_lang = next((v for v, t in OUTPUT_LANGUAGE_OPTIONS if t == output_lang_title), "auto")
 
+        asr_engine_title = self._asr_engine_popup.titleOfSelectedItem()
+        asr_engine = next((v for v, t in ASR_ENGINE_OPTIONS if t == asr_engine_title), "local")
+
         word_replacements = parse_word_replacements(str(self._word_fix_view.string()))
 
         try:
@@ -1102,6 +1118,7 @@ class SettingsWindowController(NSObject):
             transcribe_language=transcribe_lang,
             language=_transcribe_language_to_whisper(transcribe_lang),
             output_language=output_lang,
+            asr_engine=asr_engine,
             model_size=str(self._model_popup.titleOfSelectedItem()),
             hold_key=self._hold_key_recorder.value() or self._config.hold_key,
             handsfree_keys=self._handsfree_recorder.value() or self._config.handsfree_keys,
@@ -1160,6 +1177,12 @@ class SettingsWindowController(NSObject):
             "Match Input",
         )
         self._model_popup.selectItemWithTitle_(config.model_size)
+        self._select_option(
+            self._asr_engine_popup,
+            ASR_ENGINE_OPTIONS,
+            getattr(config, "asr_engine", "local"),
+            "Local Whisper",
+        )
         self._launch_checkbox.setState_(1 if launch_enabled else 0)
         self._select_option(self._mode_popup, PROMPT_MODE_OPTIONS, config.online_prompt_mode, "Disabled")
         self._custom_prompt_view.setString_(getattr(config, "online_prompt_custom_text", ""))

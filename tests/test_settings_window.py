@@ -4,6 +4,7 @@ from AppKit import NSEventModifierFlagCommand, NSEventModifierFlagOption
 
 from whisperkey_mac.config import AppConfig
 from whisperkey_mac.settings_window import (
+    ASR_ENGINE_OPTIONS,
     HotkeyRecorderView,
     PROMPT_MODE_OPTIONS,
     SettingsWindowDelegate,
@@ -160,8 +161,12 @@ def test_prompt_mode_options_include_custom():
     assert ("custom", "Custom") in PROMPT_MODE_OPTIONS
 
 
-def test_prompt_mode_options_include_doubao_mode():
-    assert ("streaming", "Doubao Mode (Real-time)") in PROMPT_MODE_OPTIONS
+def test_prompt_mode_options_do_not_include_doubao_engine():
+    assert all(mode != "streaming" for mode, _title in PROMPT_MODE_OPTIONS)
+
+
+def test_asr_engine_options_include_doubao():
+    assert ("doubao", "Doubao Streaming ASR") in ASR_ENGINE_OPTIONS
 
 
 def test_custom_prompt_visibility_follows_selected_mode(nsapp):
@@ -243,6 +248,7 @@ def test_settings_save_collects_custom_prompt_and_mode_cycle_hotkey(nsapp):
         on_save=_on_save,
     )
     controller._mode_popup.selectItemWithTitle_("Custom")
+    controller._asr_engine_popup.selectItemWithTitle_("Doubao Streaming ASR")
     controller.promptModeChanged_(None)
     controller._custom_prompt_view.setString_("Rewrite in a concise style.")
     controller._mode_cycle_recorder.setValue_(["cmd", "shift", "char:m"])
@@ -250,5 +256,6 @@ def test_settings_save_collects_custom_prompt_and_mode_cycle_hotkey(nsapp):
     controller.saveSettings_(None)
 
     assert saved["config"].online_prompt_mode == "custom"
+    assert saved["config"].asr_engine == "doubao"
     assert saved["config"].online_prompt_custom_text == "Rewrite in a concise style."
     assert saved["config"].mode_cycle_keys == ["cmd", "shift", "char:m"]

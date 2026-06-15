@@ -26,7 +26,6 @@ MODE_INDICATOR_RGB = {
     "asr_correction": (0.22, 0.48, 0.95),
     "voice_cleanup": (0.58, 0.36, 0.92),
     "custom": (0.94, 0.68, 0.20),
-    "streaming": (0.06, 0.58, 0.48),
 }
 
 MODE_MENU_LABELS = {
@@ -34,7 +33,6 @@ MODE_MENU_LABELS = {
     "asr_correction": "ASR Correction",
     "voice_cleanup": "Voice Cleanup",
     "custom": "Custom",
-    "streaming": "Doubao Mode",
 }
 
 MODE_I18N_KEYS = {
@@ -42,7 +40,16 @@ MODE_I18N_KEYS = {
     "asr_correction": "menu_mode_asr",
     "voice_cleanup": "menu_mode_cleanup",
     "custom": "menu_mode_custom",
-    "streaming": "menu_mode_streaming",
+}
+
+ASR_ENGINE_MENU_LABELS = {
+    "local": "Local Whisper",
+    "doubao": "Doubao Streaming ASR",
+}
+
+ASR_ENGINE_I18N_KEYS = {
+    "local": "menu_asr_engine_local",
+    "doubao": "menu_asr_engine_doubao",
 }
 
 
@@ -50,9 +57,6 @@ def available_modes(config) -> list[str]:
     modes = ["disabled", "asr_correction", "voice_cleanup"]
     if getattr(config, "online_prompt_custom_text", "").strip():
         modes.append("custom")
-    # Show streaming mode only if Doubao ASR is configured
-    if getattr(config, "doubao_app_id", "") and getattr(config, "doubao_access_key", ""):
-        modes.append("streaming")
     return modes
 
 
@@ -71,6 +75,10 @@ def mode_indicator_rgb_for_mode(mode: str) -> tuple[float, float, float]:
 
 def mode_menu_label_for_mode(mode: str) -> str:
     return MODE_MENU_LABELS.get(mode, MODE_MENU_LABELS["disabled"])
+
+
+def asr_engine_menu_label_for_engine(engine: str) -> str:
+    return ASR_ENGINE_MENU_LABELS.get(engine, ASR_ENGINE_MENU_LABELS["local"])
 
 
 def status_line_title(status_label: str, mode: str) -> str:
@@ -132,6 +140,7 @@ class MenuBarController(NSObject):
         self._toggle_service_item = None
         self._perm_item = None
         self._mode = getattr(self._service.config, "online_prompt_mode", "disabled")
+        self._asr_engine = getattr(self._service.config, "asr_engine", "local")
         self._build_menu()
         self._service.register_status_callback(self._refresh_from_service)
         self.refresh()
@@ -247,6 +256,7 @@ class MenuBarController(NSObject):
     def refresh(self) -> None:
         is_running = self._service.is_running
         self._mode = getattr(self._service.config, "online_prompt_mode", "disabled")
+        self._asr_engine = getattr(self._service.config, "asr_engine", "local")
         self._sync_status_button()
         self._status_line_item.setTitle_(status_line_title(self._service.status_label(), self._mode))
         self._toggle_service_item.setTitle_(service_menu_title_for_state(is_running, self._lang))
@@ -292,6 +302,19 @@ class MenuBarController(NSObject):
         from whisperkey_mac.i18n import t
 
         self._model_menu.removeAllItems()
+        current_engine = getattr(self._service.config, "asr_engine", "local")
+        for engine_key in ("local", "doubao"):
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+                t(ASR_ENGINE_I18N_KEYS[engine_key], self._lang),
+                "selectAsrEngine:",
+                "",
+            )
+            item.setTarget_(self)
+            item.setRepresentedObject_(engine_key)
+            item.setState_(1 if engine_key == current_engine else 0)
+            self._model_menu.addItem_(item)
+
+        self._model_menu.addItem_(NSMenuItem.separatorItem())
         current = getattr(self._service.config, "model_size", "small")
 
         for model_key in MODEL_ORDER:
@@ -333,6 +356,13 @@ class MenuBarController(NSObject):
         model_key = str(sender.representedObject())
         diag("menu_select_model", model=model_key)
         self._service.change_model(model_key)
+        self.refresh()
+        self._rebuild_model_submenu()
+
+    def selectAsrEngine_(self, sender) -> None:
+        engine = str(sender.representedObject())
+        diag("menu_select_asr_engine", engine=engine)
+        self._service.set_asr_engine(engine)
         self.refresh()
         self._rebuild_model_submenu()
 

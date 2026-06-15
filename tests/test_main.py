@@ -170,9 +170,9 @@ def test_start_recording_ignores_when_service_is_processing():
     mock_dispatch.assert_not_called()
 
 
-def test_doubao_mode_does_not_fall_back_to_local_recording_when_streaming_unavailable():
+def test_doubao_engine_does_not_fall_back_to_local_recording_when_streaming_unavailable():
     service = _build_service()
-    service._config.online_prompt_mode = "streaming"
+    service._config.asr_engine = "doubao"
     service._recorder = unittest.mock.MagicMock()
     service._recorder.is_recording = False
     service._hotkey = unittest.mock.MagicMock()
@@ -186,6 +186,22 @@ def test_doubao_mode_does_not_fall_back_to_local_recording_when_streaming_unavai
     service._recorder.start.assert_not_called()
     service._hotkey.reset_state.assert_called_once_with()
     assert mock_dispatch.call_args_list[-1] == unittest.mock.call(service._overlay.show_idle)
+
+
+def test_local_engine_does_not_start_streaming_asr():
+    service = _build_service()
+    service._config.asr_engine = "local"
+    service._recorder = unittest.mock.MagicMock()
+    service._recorder.is_recording = False
+    service._hotkey = unittest.mock.MagicMock()
+    service._frontmost_bundle_id = unittest.mock.MagicMock(return_value="com.apple.TextEdit")
+    service._start_streaming_asr = unittest.mock.MagicMock(return_value=True)
+
+    with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main"):
+        service._start_recording()
+
+    service._start_streaming_asr.assert_not_called()
+    service._recorder.start.assert_called_once_with()
 
 
 def test_should_attempt_direct_paste_blocks_finder_even_when_ax_matches():
@@ -644,3 +660,25 @@ def test_set_online_prompt_mode_ignored_while_recording():
     assert result == "disabled"
     mock_save.assert_not_called()
     service.notify_mode_switch_busy.assert_called_once_with()
+
+
+def test_set_asr_engine_persists_selection():
+    service = _bare_mode_service(asr_engine="local")
+
+    with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
+        result = service.set_asr_engine("doubao")
+
+    assert result == "doubao"
+    assert service._config.asr_engine == "doubao"
+    mock_save.assert_called_once_with(service._config)
+    service._status_callbacks[0].assert_called_once_with()
+
+
+def test_set_asr_engine_rejects_unknown_engine():
+    service = _bare_mode_service(asr_engine="local")
+
+    with unittest.mock.patch("whisperkey_mac.service_controller.save_config") as mock_save:
+        result = service.set_asr_engine("nonsense")
+
+    assert result == "local"
+    mock_save.assert_not_called()

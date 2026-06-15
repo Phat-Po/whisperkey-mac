@@ -124,8 +124,8 @@ def test_custom_prompt_mode_returns_plain_text_output():
     assert result == "hello world"
 
 
-def test_streaming_mode_uses_voice_cleanup_prompt():
-    cfg = _config(online_prompt_mode="streaming")
+def test_doubao_asr_engine_keeps_selected_processing_mode():
+    cfg = _config(asr_engine="doubao", online_prompt_mode="voice_cleanup")
     fake_client = unittest.mock.MagicMock()
     fake_client.responses.create.return_value = SimpleNamespace(output_text="Topic: 豆包接入")
 

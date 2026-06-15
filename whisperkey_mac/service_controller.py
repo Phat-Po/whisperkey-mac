@@ -303,7 +303,7 @@ class ServiceController:
     def set_online_prompt_mode(self, mode: str) -> str:
         """Directly select a processing mode (menu path, vs. hotkey cycling)."""
         current_mode = getattr(self._config, "online_prompt_mode", "disabled")
-        if mode not in {"disabled", "asr_correction", "voice_cleanup", "custom", "streaming"}:
+        if mode not in {"disabled", "asr_correction", "voice_cleanup", "custom"}:
             return current_mode
         if mode == "custom" and not getattr(self._config, "online_prompt_custom_text", "").strip():
             return current_mode
@@ -322,6 +322,26 @@ class ServiceController:
         self.notify_mode_switch(mode)
         self._notify_status_changed()
         return mode
+
+    def set_asr_engine(self, engine: str) -> str:
+        """Directly select the speech recognition engine."""
+        current_engine = getattr(self._config, "asr_engine", "local")
+        if engine not in {"local", "doubao"}:
+            return current_engine
+        with self._activity_lock:
+            processing_busy = self._processing_busy
+        if processing_busy or self._recorder.is_recording:
+            diag("asr_engine_set_ignored", engine=engine, processing_busy=processing_busy)
+            self.notify_mode_switch_busy()
+            return current_engine
+        if engine == current_engine:
+            return current_engine
+
+        self._config.asr_engine = engine
+        save_config(self._config)
+        diag("asr_engine_switched", engine=engine)
+        self._notify_status_changed()
+        return engine
 
     def notify_mode_switch_busy(self) -> None:
         diag("online_prompt_mode_switch_busy")
@@ -516,8 +536,8 @@ class ServiceController:
 
         dispatch_to_main(self._overlay.show_recording)
 
-        # Start streaming ASR if in streaming mode
-        if getattr(self._config, "online_prompt_mode", "") == "streaming":
+        # Start streaming ASR when Doubao is the selected recognition engine.
+        if getattr(self._config, "asr_engine", "local") == "doubao":
             if not self._start_streaming_asr():
                 self._hide_overlay_after_cancel()
                 self._hotkey.reset_state()
@@ -591,8 +611,8 @@ class ServiceController:
             cfg = self._config
             lang = cfg.ui_language
 
-            # Streaming mode: use Doubao ASR result directly
-            if getattr(cfg, "online_prompt_mode", "") == "streaming" and getattr(self, "_streaming_asr", None) is not None:
+            # Doubao engine: use streaming ASR result, then run normal post-processing.
+            if getattr(cfg, "asr_engine", "local") == "doubao" and getattr(self, "_streaming_asr", None) is not None:
                 self._recorder.cancel()  # discard audio (don't save to file)
                 text = self._stop_streaming_asr()
                 if text:

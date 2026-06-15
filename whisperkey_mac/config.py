@@ -9,7 +9,8 @@ from pathlib import Path
 
 CONFIG_PATH = Path.home() / ".config" / "whisperkey" / "config.json"
 
-VALID_PROMPT_MODES = {"disabled", "asr_correction", "custom", "voice_cleanup", "streaming"}
+VALID_PROMPT_MODES = {"disabled", "asr_correction", "custom", "voice_cleanup"}
+VALID_ASR_ENGINES = {"local", "doubao"}
 DEFAULT_MODE_CYCLE_TARGETS = ["asr_correction", "voice_cleanup"]
 
 
@@ -28,6 +29,8 @@ class AppConfig:
     output_language: str = "auto"
 
     # ── Whisper model ─────────────────────────────────────────────────────────
+    # Speech recognition engine: "local" = faster-whisper, "doubao" = streaming ASR
+    asr_engine: str = "local"
     model_size: str = "small"
     compute_type: str = "int8"
     device: str = "cpu"
@@ -90,6 +93,16 @@ def _transcribe_language_to_whisper(code: str) -> str | None:
 
 
 def _validate_config(cfg: AppConfig) -> None:
+    if getattr(cfg, "asr_engine", "local") not in VALID_ASR_ENGINES:
+        cfg.asr_engine = "local"
+
+    # Legacy migration: early Doubao builds stored the ASR choice as a prompt mode.
+    # Keep those users on Doubao, but make post-recognition processing explicit.
+    if getattr(cfg, "online_prompt_mode", "") == "streaming":
+        cfg.asr_engine = "doubao"
+        cfg.online_prompt_mode = "voice_cleanup"
+        cfg.online_correct_enabled = True
+
     if not isinstance(cfg.handsfree_keys, list):
         cfg.handsfree_keys = AppConfig().handsfree_keys
     cfg.handsfree_keys = [str(item).strip() for item in cfg.handsfree_keys if str(item).strip()]
@@ -170,6 +183,8 @@ def load_config() -> AppConfig:
         cfg.online_correct_model = v.strip()
     if v := os.getenv("WHISPERKEY_ONLINE_PROMPT_MODE"):
         cfg.online_prompt_mode = v.strip()
+    if v := os.getenv("WHISPERKEY_ASR_ENGINE"):
+        cfg.asr_engine = v.strip()
 
     # Sync transcribe_language → Whisper language param (if not set by env var)
     if cfg.language is None and cfg.transcribe_language != "auto":
