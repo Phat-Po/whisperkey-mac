@@ -339,6 +339,8 @@ class HotkeyListener:
         self._listener_ax_trusted: bool | None = None
         self._rebuild_lock = threading.Lock()
         self._rebuild_pending: bool = False
+        self._last_rebuild_at: float = 0.0
+        self._rebuild_cooldown_s: float = 8.0
         self._disabled_tap_counts: dict[str, int] = {}
         self._tap_rebuild_disabled_threshold: int = 3
         diag(
@@ -590,7 +592,12 @@ class HotkeyListener:
             if self._rebuild_pending:
                 diag("tap_rebuild_ignored", reason=reason, pending=True)
                 return
+            since_last = time.monotonic() - self._last_rebuild_at
+            if self._last_rebuild_at and since_last < self._rebuild_cooldown_s:
+                diag("tap_rebuild_ignored", reason=reason, cooldown_s=round(since_last, 2))
+                return
             self._rebuild_pending = True
+            self._last_rebuild_at = time.monotonic()
         t = threading.Thread(
             target=self._rebuild_event_taps,
             args=(reason,),

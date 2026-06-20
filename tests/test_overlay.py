@@ -13,6 +13,7 @@ from AppKit import (
     NSApplication,
     NSFloatingWindowLevel,
     NSLineBreakByWordWrapping,
+    NSMakeRect,
     NSWindowCollectionBehaviorCanJoinAllSpaces,
     NSWindowCollectionBehaviorStationary,
     NSWindowCollectionBehaviorFullScreenAuxiliary,
@@ -51,10 +52,11 @@ def test_panel_flags(panel):
 
 
 def test_panel_position(panel):
-    """OVL-02: Verify panel frame is at bottom-center of main screen with correct idle dimensions."""
+    """OVL-02: Verify panel frame is at bottom-center of the primary screen with correct idle dimensions."""
     frame = panel.frame()
-    screen = NSScreen.mainScreen()
-    screen_width = screen.frame().size.width
+    screens = NSScreen.screens()
+    screen = screens[0] if screens else NSScreen.mainScreen()
+    sf = screen.frame()
 
     assert frame.size.width == OverlayPanel.PANEL_W, (
         f"Idle panel width must be {OverlayPanel.PANEL_W}, got {frame.size.width}"
@@ -62,9 +64,10 @@ def test_panel_position(panel):
     assert frame.size.height == OverlayPanel.PANEL_H, (
         f"Idle panel height must be {OverlayPanel.PANEL_H}, got {frame.size.height}"
     )
-    assert frame.origin.y == 40.0, f"Panel y must be 40.0 (bottom margin), got {frame.origin.y}"
+    expected_y = sf.origin.y + 40.0
+    assert frame.origin.y == expected_y, f"Panel y must be {expected_y} (bottom margin), got {frame.origin.y}"
 
-    expected_x = (screen_width - OverlayPanel.PANEL_W) / 2
+    expected_x = sf.origin.x + (sf.size.width - OverlayPanel.PANEL_W) / 2
     assert abs(frame.origin.x - expected_x) <= 1.0, (
         f"Panel x must be within 1px of {expected_x} (centered), got {frame.origin.x}"
     )
@@ -600,3 +603,70 @@ def test_result_text_is_below_orb_view():
     assert label_y_bottom < orb_y_bottom, (
         f"Label y={label_y_bottom} should be below orb y={orb_y_bottom}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-display centering (DISP-01 .. DISP-04)
+# ---------------------------------------------------------------------------
+
+def test_centered_frame_honors_screen_origin():
+    """DISP-01: centering uses the primary screen origin, not just its width.
+
+    Regression for the bug where the overlay drifted onto another display
+    (off to the right) because the origin was ignored.
+    """
+    overlay = OverlayPanel.create()
+    r = overlay._renderer
+    # External screen positioned to the LEFT of the laptop (negative origin x).
+    fake = NSMakeRect(-1920.0, 0.0, 1920.0, 1080.0)
+    r._primary_screen_frame = lambda: fake
+
+    f = r._idle_frame()
+    assert f.origin.x == fake.origin.x + (fake.size.width - r.IDLE_W) / 2.0
+    assert f.origin.y == fake.origin.y + r.BOTTOM_MARGIN
+
+
+def test_frames_are_live_not_cached():
+    """DISP-02: each frame computation reads the screen live (display switch is reflected)."""
+    overlay = OverlayPanel.create()
+    r = overlay._renderer
+
+    r._primary_screen_frame = lambda: NSMakeRect(0.0, 0.0, 2560.0, 1440.0)
+    x_external = r._active_frame(r.ACTIVE_H).origin.x
+
+    # Simulate unplugging the external display → laptop becomes primary.
+    r._primary_screen_frame = lambda: NSMakeRect(0.0, 0.0, 1512.0, 982.0)
+    x_laptop = r._active_frame(r.ACTIVE_H).origin.x
+
+    assert x_external == (2560.0 - r.ACTIVE_W) / 2.0
+    assert x_laptop == (1512.0 - r.ACTIVE_W) / 2.0
+    assert x_external != x_laptop, "frame must not reuse a cached screen width"
+
+
+def test_recenter_current_recenters_panel_on_primary_screen():
+    """DISP-03: recenter_current snaps the live panel back to the primary screen center."""
+    overlay = OverlayPanel.create()
+    r = overlay._renderer
+    fake = NSMakeRect(100.0, 50.0, 2560.0, 1440.0)
+    r._primary_screen_frame = lambda: fake
+
+    # Park the panel at a stale, off-center position first.
+    overlay._panel.setFrame_display_(NSMakeRect(9999.0, 9999.0, 52.0, 52.0), False)
+    r.recenter_current()
+
+    f = overlay._panel.frame()
+    assert f.origin.x == fake.origin.x + (fake.size.width - 52.0) / 2.0
+    assert f.origin.y == fake.origin.y + r.BOTTOM_MARGIN
+    assert f.size.width == 52.0 and f.size.height == 52.0
+
+
+def test_screen_change_observer_registered_and_triggers_recenter():
+    """DISP-04: panel registers a screen-change observer that recenters the panel."""
+    overlay = OverlayPanel.create()
+    assert overlay._screen_observer is not None, "screen-change observer must be registered"
+
+    called = {"n": 0}
+    overlay._renderer.recenter_current = lambda: called.__setitem__("n", called["n"] + 1)
+    # Simulate the NSApplicationDidChangeScreenParametersNotification firing.
+    overlay._on_screen_change()
+    assert called["n"] == 1

@@ -503,6 +503,13 @@ def main() -> None:
             save_config(AppConfig())
             print("[whisperkey] No config found, using defaults. Run 'whisperkey setup' in Terminal to configure.")
 
+    # macOS 26 (Tahoe) asserts that the Text Input Source APIs pynput uses run on
+    # the main thread. Cache the keyboard layout here (main thread) before any
+    # pynput Listener/Controller is created, so the background listener never
+    # trips that assertion and crashes the process. See pynput_mainthread_patch.
+    from whisperkey_mac.pynput_mainthread_patch import apply_pynput_mainthread_patch
+    apply_pynput_mainthread_patch()
+
     App().run()
 
 

@@ -21,6 +21,7 @@ import objc
 from AppKit import (
     NSAffineTransform,
     NSAnimationContext,
+    NSApplicationDidChangeScreenParametersNotification,
     NSAttributedString,
     NSBackingStoreBuffered,
     NSBezierPath,
@@ -45,6 +46,7 @@ from AppKit import (
     NSWindowStyleMaskBorderless,
     NSWindowStyleMaskNonactivatingPanel,
 )
+from Foundation import NSNotificationCenter, NSObject
 from PyObjCTools.AppHelper import callAfter, callLater
 from Quartz import (
     CAMediaTimingFunction,
@@ -381,10 +383,6 @@ class AuroraRenderer:
         self._record_start_at: float = 0.0
         self._hint_gen: int = 0
 
-        screen = NSScreen.mainScreen()
-        sf = screen.frame()
-        self._screen_w = sf.size.width
-
         self._configure_text_fields()
         self._reset_visuals()
 
@@ -688,21 +686,56 @@ class AuroraRenderer:
     # Layout helpers
     # ------------------------------------------------------------------
 
+    def _primary_screen_frame(self):
+        """Full frame (origin + size) of the primary (menu-bar) display.
+
+        Read live on every call so display plug/unplug/rearrange is always
+        reflected — never cached. The primary display is ``NSScreen.screens()[0]``
+        (the one set as main in System Settings, with origin near (0,0)). Falls
+        back to the active screen, then to a safe default if AppKit returns nothing.
+        """
+        screens = NSScreen.screens()
+        screen = screens[0] if screens else NSScreen.mainScreen()
+        if screen is None:
+            return NSMakeRect(0.0, 0.0, 1440.0, 900.0)
+        return screen.frame()
+
+    def _centered_frame(self, width: float, height: float):
+        """Bottom-centered rect on the primary display, honoring its origin.
+
+        Using ``origin`` (not just width) is what keeps the panel on the intended
+        screen in multi-display layouts instead of drifting onto another screen.
+        """
+        sf = self._primary_screen_frame()
+        x = sf.origin.x + (sf.size.width - width) / 2.0
+        y = sf.origin.y + self.BOTTOM_MARGIN
+        return NSMakeRect(x, y, width, height)
+
     def _idle_frame(self):
-        x = (self._screen_w - self.IDLE_W) / 2.0
-        return NSMakeRect(x, self.BOTTOM_MARGIN, self.IDLE_W, self.IDLE_H)
+        return self._centered_frame(self.IDLE_W, self.IDLE_H)
 
     def _active_frame(self, height: float):
-        x = (self._screen_w - self.ACTIVE_W) / 2.0
-        return NSMakeRect(x, self.BOTTOM_MARGIN, self.ACTIVE_W, height)
+        return self._centered_frame(self.ACTIVE_W, height)
 
     def _streaming_frame(self, height: float):
-        x = (self._screen_w - self.STREAMING_W) / 2.0
-        return NSMakeRect(x, self.BOTTOM_MARGIN, self.STREAMING_W, height)
+        return self._centered_frame(self.STREAMING_W, height)
 
     def _result_frame(self, height: float):
-        x = (self._screen_w - self.RESULT_W) / 2.0
-        return NSMakeRect(x, self.BOTTOM_MARGIN, self.RESULT_W, height)
+        return self._centered_frame(self.RESULT_W, height)
+
+    def recenter_current(self) -> None:
+        """Re-center the panel on the primary display using its current size.
+
+        Called when the display configuration changes so whatever is showing —
+        including the persistent idle pill — snaps back to the primary screen's
+        center instead of being stranded at a stale position.
+        """
+        if self._panel is None:
+            return
+        cur = self._panel.frame()
+        target = self._centered_frame(cur.size.width, cur.size.height)
+        self._panel.setFrame_display_(target, True)
+        diag("overlay_recenter", x=target.origin.x, y=target.origin.y, w=cur.size.width)
 
     def _apply_result_layout(self, text: str) -> None:
         w = self.RESULT_W
@@ -1009,6 +1042,30 @@ class OverlayStateMachine:
 
 
 # ---------------------------------------------------------------------------
+# Screen-change observer
+# ---------------------------------------------------------------------------
+
+class _ScreenChangeObserver(NSObject):
+    """Bridges NSApplicationDidChangeScreenParametersNotification to a callback.
+
+    Fires when a display is connected/disconnected/rearranged or its resolution
+    changes — used to recenter the overlay on the primary screen.
+    """
+
+    def initWithCallback_(self, callback):
+        self = objc.super(_ScreenChangeObserver, self).init()
+        if self is None:
+            return None
+        self._callback = callback
+        return self
+
+    def screensChanged_(self, _note):
+        cb = getattr(self, "_callback", None)
+        if cb is not None:
+            cb()
+
+
+# ---------------------------------------------------------------------------
 # Overlay Panel
 # ---------------------------------------------------------------------------
 
@@ -1035,6 +1092,7 @@ class OverlayPanel:
         self._backdrop_layers = {}
         self._renderer = None
         self._state_machine = None
+        self._screen_observer = None
         self._result_max_lines = max(1, result_max_lines)
 
     @classmethod
@@ -1047,10 +1105,11 @@ class OverlayPanel:
 
     def _build(self) -> None:
         diag("overlay_panel_build_start")
-        screen = NSScreen.mainScreen()
+        screens = NSScreen.screens()
+        screen = screens[0] if screens else NSScreen.mainScreen()
         sf = screen.frame()
-        x = (sf.size.width - self.PANEL_W) / 2
-        y = float(self.BOTTOM_MARGIN)
+        x = sf.origin.x + (sf.size.width - self.PANEL_W) / 2
+        y = sf.origin.y + float(self.BOTTOM_MARGIN)
         frame = NSMakeRect(x, y, float(self.PANEL_W), float(self.PANEL_H))
 
         style = NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
@@ -1094,8 +1153,36 @@ class OverlayPanel:
             self._mode_label,
         )
 
+        self._register_screen_observer()
+
         print("[whisperkey] Overlay panel configured (invisible, alpha=0).")
         diag("overlay_panel_build_end")
+
+    def _register_screen_observer(self) -> None:
+        """Recenter the panel whenever the display configuration changes.
+
+        Without this, the persistent idle pill stays stranded at its old
+        position after a display is plugged/unplugged (the symptom: it drifts
+        onto the laptop screen, off to the right).
+        """
+        try:
+            self._screen_observer = _ScreenChangeObserver.alloc().initWithCallback_(
+                self._on_screen_change
+            )
+            NSNotificationCenter.defaultCenter().addObserver_selector_name_object_(
+                self._screen_observer,
+                b"screensChanged:",
+                NSApplicationDidChangeScreenParametersNotification,
+                None,
+            )
+            diag("overlay_screen_observer_registered")
+        except Exception as exc:  # pragma: no cover - defensive
+            diag("overlay_screen_observer_error", error_type=type(exc).__name__)
+
+    def _on_screen_change(self) -> None:
+        diag("overlay_screens_changed")
+        if self._renderer is not None:
+            self._renderer.recenter_current()
 
     def _build_content(self) -> None:
         w, h = float(self.PANEL_W), float(self.PANEL_H)
