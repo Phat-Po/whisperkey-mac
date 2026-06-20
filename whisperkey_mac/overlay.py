@@ -83,15 +83,17 @@ _VALID_TRANSITIONS: dict[OverlayState, set[OverlayState]] = {
 
 MODE_SWITCH_LABELS = {
     "en": {
-        "asr_correction": "ASR",
-        "voice_cleanup": "CLEAN",
+        "asr_correction": "FILLER",
+        "voice_cleanup": "AGENT",
+        "summary": "SUMMARY",
         "custom": "CUSTOM",
         "disabled": "OFF",
         "streaming": "DOUBAO",
     },
     "zh": {
-        "asr_correction": "校正",
-        "voice_cleanup": "润色",
+        "asr_correction": "去干扰",
+        "voice_cleanup": "Agent",
+        "summary": "总结",
         "custom": "自定义",
         "disabled": "关闭",
         "streaming": "豆包",

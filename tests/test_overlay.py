@@ -406,8 +406,10 @@ def test_result_label_uses_word_wrapping_for_three_line_results():
 
 
 def test_mode_switch_label_uses_short_localized_text():
-    assert mode_switch_label_for_mode("asr_correction", "en") == "ASR"
-    assert mode_switch_label_for_mode("voice_cleanup", "en") == "CLEAN"
+    assert mode_switch_label_for_mode("asr_correction", "en") == "FILLER"
+    assert mode_switch_label_for_mode("voice_cleanup", "en") == "AGENT"
+    assert mode_switch_label_for_mode("summary", "en") == "SUMMARY"
+    assert mode_switch_label_for_mode("summary", "zh") == "总结"
     assert mode_switch_label_for_mode("custom", "zh") == "自定义"
     assert mode_switch_label_for_mode("disabled", "zh") == "关闭"
 
@@ -428,7 +430,7 @@ def test_show_mode_switch_overlays_label_without_expanding_orb():
     assert overlay._orb_view._orb_state == "idle"
     assert overlay._panel.frame().size.width == overlay.PANEL_W
     assert overlay._panel.frame().size.height == overlay.PANEL_H
-    assert overlay._mode_label.stringValue() == "CLEAN"
+    assert overlay._mode_label.stringValue() == "AGENT"
     assert overlay._mode_label.isHidden() is False
     assert overlay._label.isHidden() is True
     assert overlay._sublabel.isHidden() is True

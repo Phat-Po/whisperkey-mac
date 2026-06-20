@@ -43,8 +43,9 @@ from whisperkey_mac.usage_log import query_usage
 
 PROMPT_MODE_OPTIONS = [
     ("disabled", "Disabled"),
-    ("asr_correction", "ASR Correction"),
-    ("voice_cleanup", "Voice Cleanup"),
+    ("asr_correction", "Remove Fillers"),
+    ("voice_cleanup", "Agent Mode"),
+    ("summary", "Summarize"),
     ("custom", "Custom"),
 ]
 
@@ -794,7 +795,7 @@ class SettingsWindowController(NSObject):
 
         self._lbl(view, "Timeout (sec)", 20, y)
         self._timeout_field = self._field(view, str(self._config.online_correct_timeout_s), 190, y - 2, 80)
-        self._hint(view, "Recommended: 8 for Voice Cleanup, 3 for ASR Correction", 190, y - 20)
+        self._hint(view, "Recommended: 8 for Agent Mode, 3 for Remove Fillers", 190, y - 20)
         y -= 58
 
         self._lbl(view, "Cycle Mode", 20, y)
@@ -805,18 +806,24 @@ class SettingsWindowController(NSObject):
         )
         self._register_hotkey_recorder(self._mode_cycle_recorder)
         view.addSubview_(self._mode_cycle_recorder)
-        self._hint(view, "Cycles ASR Correction and Voice Cleanup.", 190, y - 22, 230)
+        self._hint(view, "Cycles Remove Fillers and Agent Mode.", 190, y - 22, 230)
         y -= 58
 
         self._hint(
             view,
-            "ASR Correction — fixes homophones and punctuation (short texts).",
+            "Remove Fillers — fixes typos and drops filler words (plain prose).",
             20, y,
         )
         y -= 18
         self._hint(
             view,
-            "Voice Cleanup — removes filler words, deduplicates, restructures.",
+            "Agent Mode — restructures speech into instructions for an AI agent.",
+            20, y,
+        )
+        y -= 18
+        self._hint(
+            view,
+            "Summarize — condenses speech into a short, readable summary.",
             20, y,
         )
         self._sync_custom_prompt_visibility()

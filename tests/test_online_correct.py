@@ -124,6 +124,64 @@ def test_custom_prompt_mode_returns_plain_text_output():
     assert result == "hello world"
 
 
+def test_asr_correction_instructions_include_filler_removal():
+    # "Remove Fillers" (去除干扰词) mode strips hesitation words but stays plain prose.
+    cfg = _config()
+    fake_client = unittest.mock.MagicMock()
+    fake_client.responses.create.return_value = SimpleNamespace(output_text="帮我检查这个代码")
+
+    with (
+        unittest.mock.patch("whisperkey_mac.online_correct.load_openai_api_key", return_value="sk-test"),
+        unittest.mock.patch("whisperkey_mac.online_correct._build_openai_client", return_value=fake_client),
+    ):
+        result = maybe_correct_online("嗯然后就是我想让你帮我检查这个代码", cfg)
+
+    assert result == "帮我检查这个代码"
+    instructions = fake_client.responses.create.call_args.kwargs["instructions"]
+    assert "filler words" in instructions
+    # Must NOT borrow Agent mode's structured-template behaviour.
+    assert "Topic/Tasks template" in instructions
+    assert "transcript-to-instruction editor" not in instructions
+
+
+def test_summary_mode_returns_plain_summary():
+    cfg = _config(online_prompt_mode="summary")
+    fake_client = unittest.mock.MagicMock()
+    fake_client.responses.create.return_value = SimpleNamespace(
+        output_text="用户想先做手机版，重点是控制成本。"
+    )
+
+    with (
+        unittest.mock.patch("whisperkey_mac.online_correct.load_openai_api_key", return_value="sk-test"),
+        unittest.mock.patch("whisperkey_mac.online_correct._build_openai_client", return_value=fake_client),
+    ):
+        result = maybe_process_online(
+            "嗯就是我觉得我们应该先做手机版，然后那个成本要控制一下", cfg
+        )
+
+    assert result == "用户想先做手机版，重点是控制成本。"
+    kwargs = fake_client.responses.create.call_args.kwargs
+    assert "summary for a human reader" in kwargs["instructions"]
+    assert "NOT a list of instructions for an AI agent" in kwargs["instructions"]
+    assert kwargs["max_output_tokens"] == 512
+
+
+def test_summary_mode_bypasses_cjk_and_max_chars_guards():
+    # Same long/mixed-text tolerance as Agent mode: only min_chars applies.
+    cfg = _config(online_prompt_mode="summary", online_correct_max_chars=10)
+    fake_client = unittest.mock.MagicMock()
+    fake_client.responses.create.return_value = SimpleNamespace(output_text="summary text")
+
+    with (
+        unittest.mock.patch("whisperkey_mac.online_correct.load_openai_api_key", return_value="sk-test"),
+        unittest.mock.patch("whisperkey_mac.online_correct._build_openai_client", return_value=fake_client),
+    ):
+        result = maybe_process_online("hello world this is a long english sentence", cfg)
+
+    assert result == "summary text"
+    fake_client.responses.create.assert_called_once()
+
+
 def test_doubao_asr_engine_keeps_selected_processing_mode():
     cfg = _config(asr_engine="doubao", online_prompt_mode="voice_cleanup")
     fake_client = unittest.mock.MagicMock()

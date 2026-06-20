@@ -1,6 +1,6 @@
 # 设计说明：处理模式重命名 + 新增 Summarize 模式
 
-> 范围：纯设计文档（design spec）。**不含代码改动**。落地实现需另行 `批准执行`。
+> **状态：已实现（2026-06-20，`批准执行`）。** 307 测试全绿。本节以下为设计记录。
 > 关联代码：`whisperkey_mac/online_correct.py`、`config.py`、`i18n.py`、`settings_window.py`、`menu_bar.py`
 
 ---

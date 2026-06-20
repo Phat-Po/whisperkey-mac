@@ -9,7 +9,7 @@ from pathlib import Path
 
 CONFIG_PATH = Path.home() / ".config" / "whisperkey" / "config.json"
 
-VALID_PROMPT_MODES = {"disabled", "asr_correction", "custom", "voice_cleanup"}
+VALID_PROMPT_MODES = {"disabled", "asr_correction", "custom", "voice_cleanup", "summary"}
 VALID_ASR_ENGINES = {"local", "doubao"}
 DEFAULT_MODE_CYCLE_TARGETS = ["asr_correction", "voice_cleanup"]
 

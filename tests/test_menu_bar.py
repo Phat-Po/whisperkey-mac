@@ -29,8 +29,8 @@ def test_mode_indicator_color_mapping():
 
 
 def test_status_line_title_includes_current_mode():
-    assert mode_menu_label_for_mode("voice_cleanup") == "Voice Cleanup"
-    assert status_line_title("Running", "voice_cleanup") == "Status: Running · Mode: Voice Cleanup"
+    assert mode_menu_label_for_mode("voice_cleanup") == "Agent Mode"
+    assert status_line_title("Running", "voice_cleanup") == "Status: Running · Mode: Agent Mode"
     assert status_line_title("Stopped", "disabled") == "Status: Stopped · Mode: Off"
 
 
@@ -60,10 +60,10 @@ def test_available_modes_includes_custom_only_with_prompt_text():
     from whisperkey_mac.menu_bar import available_modes
 
     without_custom = SimpleNamespace(online_prompt_custom_text="")
-    assert available_modes(without_custom) == ["disabled", "asr_correction", "voice_cleanup"]
+    assert available_modes(without_custom) == ["disabled", "asr_correction", "voice_cleanup", "summary"]
 
     with_custom = SimpleNamespace(online_prompt_custom_text="my prompt")
-    assert available_modes(with_custom) == ["disabled", "asr_correction", "voice_cleanup", "custom"]
+    assert available_modes(with_custom) == ["disabled", "asr_correction", "voice_cleanup", "summary", "custom"]
 
 
 def test_app_version_returns_nonempty_string():

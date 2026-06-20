@@ -10,12 +10,23 @@ from whisperkey_mac.usage_log import log_usage
 
 _CJK_RE = re.compile(r"[\u3400-\u9fff]")
 
+# Shared filler-removal rule for the "Remove Fillers" (去除干扰词) mode.
+# Strips meaningless hesitation words while keeping natural prose — never a template.
+_FILLER_REMOVAL_RULE = (
+    "Also remove pure filler words and hesitation sounds when they carry no meaning: "
+    "um, uh, you know, like, 嗯, 呃, 啊, 就是, 那个, 然后, 对对对. "
+    "Only remove them when meaningless; if a word marks sequence, contrast, cause, "
+    "emphasis, or a real transition, keep it. "
+    "Output natural prose. Do not use any heading, bullet, or Topic/Tasks template."
+)
+
 _CORRECTION_INSTRUCTIONS = (
     "You correct Chinese ASR transcripts. "
     "Output only the corrected text, no explanation. "
     "Keep the original meaning. Fix only obvious ASR mistakes, homophone substitutions, "
     "punctuation, and short context errors. "
-    "Do not translate. Do not rewrite style. Do not expand the content."
+    "Do not translate. Do not rewrite style. Do not expand the content. "
+    + _FILLER_REMOVAL_RULE
 )
 
 _CORRECTION_INSTRUCTIONS_TO_EN = (
@@ -23,7 +34,8 @@ _CORRECTION_INSTRUCTIONS_TO_EN = (
     "Output only the final text, no explanation. "
     "Keep the original meaning. Fix only obvious ASR mistakes, homophone substitutions, "
     "punctuation, and short context errors before translating. "
-    "Do not expand the content or add details."
+    "Do not expand the content or add details. "
+    + _FILLER_REMOVAL_RULE
 )
 
 _CORRECTION_INSTRUCTIONS_TO_ZH = (
@@ -31,8 +43,26 @@ _CORRECTION_INSTRUCTIONS_TO_ZH = (
     "Output only the final text, no explanation. "
     "Keep the original meaning. Fix only obvious ASR mistakes, homophone substitutions, "
     "punctuation, and short context errors before translating. "
-    "Do not expand the content or add details."
+    "Do not expand the content or add details. "
+    + _FILLER_REMOVAL_RULE
 )
+
+_SUMMARY_PROMPT = """You summarize raw voice-to-text transcripts into a short, plain, easy-to-read summary for a human reader. This is NOT a list of instructions for an AI agent.
+
+Do this internally:
+1. Find the main point(s) and the speaker's intent.
+2. Drop filler, hesitation, repetition, and self-corrections (keep only the final intent).
+3. Compress secondary detail; keep only what a reader needs to understand the gist.
+
+Rules:
+
+* Output in the same language as the input.
+* Write 1-4 short, colloquial sentences, or at most a few plain bullet points if there are clearly separate topics. No headings, no bold, no template fields.
+* Use plain declarative statements ("用户想…", "重点是…", "The user wants…"), NOT imperative commands ("do X", "第二步…").
+* Do NOT turn this into executable tasks or an agent instruction block.
+* Do NOT add information not present in the transcript.
+* Keep important specifics (names, numbers, decisions) only if central to the gist.
+* No preamble, no explanation. Output only the summary."""
 
 _VOICE_CLEANUP_PROMPT = """You are a transcript-to-instruction editor. The user will paste a raw voice-to-text transcript. Convert it into clean, faithful, executable instructions for an AI agent.
 
@@ -99,6 +129,10 @@ def _voice_cleanup_prompt(config: AppConfig) -> str:
     return _VOICE_CLEANUP_PROMPT
 
 
+def _summary_prompt(config: AppConfig) -> str:
+    return _SUMMARY_PROMPT
+
+
 def _asr_correction_instructions(config: AppConfig) -> str:
     output_lang = getattr(config, "output_language", "auto")
     if output_lang == "en":
@@ -154,6 +188,20 @@ def maybe_process_online(text: str, config: AppConfig) -> str:
                 pass
             return _extract_plain_text(getattr(response, "output_text", "")) or normalized
 
+        if mode == "summary":
+            response = client.responses.create(
+                model=config.online_correct_model,
+                instructions=_summary_prompt(config),
+                input=normalized,
+                max_output_tokens=512,
+            )
+            try:
+                u = response.usage
+                log_usage("summary", config.online_correct_model, u.input_tokens, u.output_tokens)
+            except Exception:
+                pass
+            return _extract_plain_text(getattr(response, "output_text", "")) or normalized
+
         # asr_correction (default)
         response = client.responses.create(
             model=config.online_correct_model,
@@ -179,7 +227,7 @@ def maybe_correct_online(text: str, config: AppConfig) -> str:
 
 def _prompt_mode(config: AppConfig) -> str:
     mode = getattr(config, "online_prompt_mode", "")
-    if mode in {"disabled", "asr_correction", "custom", "voice_cleanup"}:
+    if mode in {"disabled", "asr_correction", "custom", "voice_cleanup", "summary"}:
         return mode
     return "asr_correction" if config.online_correct_enabled else "disabled"
 
@@ -191,8 +239,8 @@ def _should_process_online(text: str, config: AppConfig, mode: str) -> bool:
         return False
     if mode == "custom":
         return bool(config.online_prompt_custom_text.strip())
-    if mode == "voice_cleanup":
-        # Skip max_chars and CJK ratio checks — voice cleanup handles long/mixed text
+    if mode in {"voice_cleanup", "summary"}:
+        # Skip max_chars and CJK ratio checks — these handle long/mixed text
         return len(text) >= config.online_correct_min_chars
     # asr_correction: apply all guards
     if len(text) < config.online_correct_min_chars:

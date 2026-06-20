@@ -25,13 +25,15 @@ MODE_INDICATOR_RGB = {
     "disabled": (0.55, 0.56, 0.60),
     "asr_correction": (0.22, 0.48, 0.95),
     "voice_cleanup": (0.58, 0.36, 0.92),
+    "summary": (0.20, 0.74, 0.55),
     "custom": (0.94, 0.68, 0.20),
 }
 
 MODE_MENU_LABELS = {
     "disabled": "Off",
-    "asr_correction": "ASR Correction",
-    "voice_cleanup": "Voice Cleanup",
+    "asr_correction": "Remove Fillers",
+    "voice_cleanup": "Agent Mode",
+    "summary": "Summarize",
     "custom": "Custom",
 }
 
@@ -39,6 +41,7 @@ MODE_I18N_KEYS = {
     "disabled": "menu_mode_disabled",
     "asr_correction": "menu_mode_asr",
     "voice_cleanup": "menu_mode_cleanup",
+    "summary": "menu_mode_summary",
     "custom": "menu_mode_custom",
 }
 
@@ -54,7 +57,7 @@ ASR_ENGINE_I18N_KEYS = {
 
 
 def available_modes(config) -> list[str]:
-    modes = ["disabled", "asr_correction", "voice_cleanup"]
+    modes = ["disabled", "asr_correction", "voice_cleanup", "summary"]
     if getattr(config, "online_prompt_custom_text", "").strip():
         modes.append("custom")
     return modes

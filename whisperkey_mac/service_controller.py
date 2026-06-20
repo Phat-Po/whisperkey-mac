@@ -283,7 +283,7 @@ class ServiceController:
 
         targets = [
             mode for mode in getattr(self._config, "mode_cycle_targets", [])
-            if mode in {"disabled", "asr_correction", "voice_cleanup"}
+            if mode in {"disabled", "asr_correction", "voice_cleanup", "summary"}
         ]
         if not targets:
             targets = ["asr_correction", "voice_cleanup"]
@@ -303,7 +303,7 @@ class ServiceController:
     def set_online_prompt_mode(self, mode: str) -> str:
         """Directly select a processing mode (menu path, vs. hotkey cycling)."""
         current_mode = getattr(self._config, "online_prompt_mode", "disabled")
-        if mode not in {"disabled", "asr_correction", "voice_cleanup", "custom"}:
+        if mode not in {"disabled", "asr_correction", "voice_cleanup", "summary", "custom"}:
             return current_mode
         if mode == "custom" and not getattr(self._config, "online_prompt_custom_text", "").strip():
             return current_mode
