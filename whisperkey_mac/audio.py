@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -41,6 +42,10 @@ class AudioRecorder:
         self._stream: sd.InputStream | None = None
         self._recording = False
         self._smoothed_level: float = 0.0
+        # Monotonic timestamp of the most recent audio callback. Used by the
+        # disconnect watchdog to detect a mid-recording device removal (PortAudio
+        # stops firing the callback when a CoreAudio input device disappears).
+        self._last_chunk_time: float = 0.0
         # Name of the device actually opened for the current/last recording.
         # "" means the system default device was used.
         self.active_device_name: str = ""
@@ -60,6 +65,19 @@ class AudioRecorder:
         with self._lock:
             return min(1.0, self._smoothed_level * 10.0)
 
+    @property
+    def seconds_since_last_chunk(self) -> float:
+        """Seconds since the audio callback last fired; 0.0 when not recording.
+
+        When a pinned input device is removed mid-stream, PortAudio stops
+        invoking the callback, so this value grows without bound. The disconnect
+        watchdog reads it to tell "device gone" from a normal, active stream.
+        """
+        with self._lock:
+            if not self._recording or self._last_chunk_time == 0.0:
+                return 0.0
+            return time.monotonic() - self._last_chunk_time
+
     def start(self) -> None:
         with self._lock:
             if self._recording:
@@ -69,6 +87,20 @@ class AudioRecorder:
             self._smoothed_level = 0.0
 
             configured = getattr(self._config, "input_device", "") or ""
+
+            # Auto-reconnect (B-3): when a specific device is pinned, refresh
+            # PortAudio's device list so a phone / Continuity mic that reconnected
+            # after app launch becomes visible again. No stream is open at this
+            # point, so re-initializing PortAudio is safe. Only pinned-device
+            # users pay the ~100-300ms re-init cost; default-mic users skip it to
+            # keep start latency low.
+            if configured:
+                try:
+                    sd._terminate()
+                    sd._initialize()
+                except Exception:
+                    pass  # never block recording on a refresh failure
+
             # Resolve the device to open. An empty name means system default.
             # If a specific device is configured but currently offline (e.g. an
             # iPhone Continuity mic that disconnected), fall back to the default
@@ -88,6 +120,7 @@ class AudioRecorder:
                 self.active_device_name = "" if device is None else configured
             self._stream.start()
             self._recording = True
+            self._last_chunk_time = time.monotonic()
 
     def _open_stream(self, device: str | None) -> sd.InputStream:
         """Open an input stream, retrying once with the default device on failure."""
@@ -129,8 +162,12 @@ class AudioRecorder:
             self._smoothed_level = 0.0
 
         if stream is not None:
-            stream.stop()
-            stream.close()
+            try:
+                stream.stop()
+                stream.close()
+            except Exception as exc:
+                # A device removed mid-recording can make stop()/close() raise.
+                diag("stream_close_error", where="stop_and_save", error_type=type(exc).__name__)
 
         with self._lock:
             if not self._frames:
@@ -158,8 +195,11 @@ class AudioRecorder:
             self._smoothed_level = 0.0
 
         if stream is not None:
-            stream.stop()
-            stream.close()
+            try:
+                stream.stop()
+                stream.close()
+            except Exception as exc:
+                diag("stream_close_error", where="cancel", error_type=type(exc).__name__)
 
     def _callback(
         self,
@@ -169,6 +209,8 @@ class AudioRecorder:
         status: object,
     ) -> None:
         with self._lock:
+            # Heartbeat for the disconnect watchdog — cheap, every callback.
+            self._last_chunk_time = time.monotonic()
             if self._recording:
                 self._frames.append(indata.copy())
                 rms = float(np.sqrt(np.mean(indata ** 2)))

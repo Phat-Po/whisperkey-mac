@@ -19,6 +19,10 @@ class DummyService:
     _transcribe_and_inject = ServiceController._transcribe_and_inject
     _process_and_inject_text = ServiceController._process_and_inject_text
     _hide_overlay_after_cancel = ServiceController._hide_overlay_after_cancel
+    _start_disconnect_watchdog = ServiceController._start_disconnect_watchdog
+    _stop_disconnect_watchdog = ServiceController._stop_disconnect_watchdog
+    _disconnect_watchdog_loop = ServiceController._disconnect_watchdog_loop
+    _notify_device_disconnected = ServiceController._notify_device_disconnected
     _frontmost_bundle_id = ServiceController._frontmost_bundle_id
     _should_attempt_direct_paste = ServiceController._should_attempt_direct_paste
     cycle_online_prompt_mode = ServiceController.cycle_online_prompt_mode
@@ -37,6 +41,9 @@ def _build_service() -> DummyService:
     service._processing_busy = False
     service._ui_quiet_until = 0.0
     service._record_target_bundle_id = None
+    service._disconnect_watchdog_thread = None
+    service._disconnect_watchdog_stop = None
+    service._disconnect_watchdog_lock = threading.Lock()
     return service
 
 
@@ -145,6 +152,7 @@ def test_start_recording_captures_frontmost_bundle_id():
     service = _build_service()
     service._recorder = unittest.mock.MagicMock()
     service._recorder.is_recording = False
+    service._recorder.active_device_name = ""  # default mic → no disconnect watchdog
     service._frontmost_bundle_id = unittest.mock.MagicMock(return_value="com.apple.TextEdit")
 
     with unittest.mock.patch("whisperkey_mac.overlay.dispatch_to_main") as mock_dispatch:
@@ -193,6 +201,7 @@ def test_local_engine_does_not_start_streaming_asr():
     service._config.asr_engine = "local"
     service._recorder = unittest.mock.MagicMock()
     service._recorder.is_recording = False
+    service._recorder.active_device_name = ""  # default mic → no disconnect watchdog
     service._hotkey = unittest.mock.MagicMock()
     service._frontmost_bundle_id = unittest.mock.MagicMock(return_value="com.apple.TextEdit")
     service._start_streaming_asr = unittest.mock.MagicMock(return_value=True)

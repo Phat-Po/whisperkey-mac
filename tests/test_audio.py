@@ -177,3 +177,82 @@ def test_start_retries_default_on_open_error(tmp_path, monkeypatch):
     assert rec.is_recording
     assert rec.fell_back_to_default is True
     assert rec.active_device_name == ""
+
+
+# --- Callback-stall tracking (B-1) ---------------------------------------
+
+def test_seconds_since_last_chunk_zero_when_not_recording(recorder):
+    """B-1: the stall property is 0.0 when no recording is active."""
+    assert recorder.seconds_since_last_chunk == 0.0
+
+
+def test_seconds_since_last_chunk_zero_before_first_callback(recorder):
+    """B-1: recording started but no callback fired yet → 0.0 (not a huge value)."""
+    recorder._recording = True
+    recorder._last_chunk_time = 0.0
+    assert recorder.seconds_since_last_chunk == 0.0
+
+
+def test_seconds_since_last_chunk_grows_while_stalled(recorder, monkeypatch):
+    """B-1: with no new callbacks, elapsed time since last chunk grows."""
+    import whisperkey_mac.audio as audio_mod
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(audio_mod.time, "monotonic", lambda: clock["t"])
+    recorder._recording = True
+    recorder._last_chunk_time = 1000.0
+    clock["t"] = 1002.5
+    assert recorder.seconds_since_last_chunk == pytest.approx(2.5)
+
+
+def test_callback_refreshes_heartbeat(recorder, monkeypatch):
+    """B-1: each audio callback updates _last_chunk_time, resetting the stall."""
+    import whisperkey_mac.audio as audio_mod
+
+    clock = {"t": 5000.0}
+    monkeypatch.setattr(audio_mod.time, "monotonic", lambda: clock["t"])
+    recorder._recording = True
+    recorder._last_chunk_time = 4990.0  # stale heartbeat
+    frames = np.zeros((512, 1), dtype="float32")
+    recorder._callback(frames, 512, None, None)
+    assert recorder.seconds_since_last_chunk == pytest.approx(0.0)
+
+
+# --- Teardown hardening against a removed device (B-1) --------------------
+
+class _RaisingTeardownStream:
+    """Opens fine but raises on stop()/close() — mimics a removed device."""
+
+    def __init__(self, *, device=None, **_kw):
+        self.device = device
+
+    def start(self):
+        pass
+
+    def stop(self):
+        raise sd.PortAudioError("device removed")
+
+    def close(self):
+        raise sd.PortAudioError("device removed")
+
+
+def test_stop_and_save_swallows_teardown_error(tmp_path, monkeypatch):
+    """B-1: stop_and_save must not propagate a stream.stop()/close() that raises."""
+    monkeypatch.setattr(sd, "query_devices", lambda: _FAKE_DEVICES)
+    monkeypatch.setattr(sd, "InputStream", _RaisingTeardownStream)
+    cfg = AppConfig(temp_dir=tmp_path, input_device="MacBook Pro Microphone")
+    rec = AudioRecorder(cfg)
+    rec.start()
+    assert rec.stop_and_save() is None  # no frames captured; must not raise
+    assert rec.is_recording is False
+
+
+def test_cancel_swallows_teardown_error(tmp_path, monkeypatch):
+    """B-1: cancel must not propagate a stream.stop()/close() that raises."""
+    monkeypatch.setattr(sd, "query_devices", lambda: _FAKE_DEVICES)
+    monkeypatch.setattr(sd, "InputStream", _RaisingTeardownStream)
+    cfg = AppConfig(temp_dir=tmp_path, input_device="MacBook Pro Microphone")
+    rec = AudioRecorder(cfg)
+    rec.start()
+    rec.cancel()  # must not raise
+    assert rec.is_recording is False

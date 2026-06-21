@@ -33,6 +33,14 @@ _AUTOPASTE_BLOCKED_BUNDLE_IDS = {
 }
 _AUTOPASTE_ALLOWLIST_BUNDLE_IDS = {"com.openai.codex", "com.tencent.xinWeChat", "com.superset.desktop"}
 
+# Disconnect watchdog (B): a pinned input device removed mid-recording makes
+# PortAudio stop firing the audio callback. We treat "no callback for
+# STALL_THRESHOLD_S, confirmed over 2 consecutive ticks" as a disconnect and
+# auto-run the normal stop→transcribe→inject path. Callbacks normally arrive
+# every ~10-50ms, so 1.5s with 2-tick confirmation avoids false positives.
+STALL_THRESHOLD_S = 1.5
+WATCHDOG_TICK_S = 0.5
+
 
 class ServiceController:
     def __init__(self, config: AppConfig) -> None:
@@ -50,6 +58,9 @@ class ServiceController:
         self._settings_hotkey_suspend_count = 0
         self._settings_hotkey_suspend_lock = threading.Lock()
         self._status_callbacks: list[Callable[[], None]] = []
+        self._disconnect_watchdog_thread: threading.Thread | None = None
+        self._disconnect_watchdog_stop: threading.Event | None = None
+        self._disconnect_watchdog_lock = threading.Lock()
 
         cfg = self._config
         self._hotkey = HotkeyListener(
@@ -191,6 +202,7 @@ class ServiceController:
         diag("service_stop_begin")
         self._hotkey.stop()
         self._recorder.cancel()
+        self._stop_disconnect_watchdog()
         self._record_target_bundle_id = None
         self._service_running = False
 
@@ -522,6 +534,76 @@ class ServiceController:
             pyperclip.copy(final_text)
             dispatch_to_main(self._overlay.show_result, final_text, "已复制到剪贴板", 3.0, 0.4)
 
+    # ── Disconnect watchdog (B) ─────────────────────────────────────────────
+
+    def _start_disconnect_watchdog(self) -> None:
+        """Watch for a mid-recording disconnect of a pinned input device.
+
+        When the pinned device is removed, PortAudio stops firing the audio
+        callback; the loop detects the stall and runs the SAME downstream path as
+        a normal hotkey release, so the user need not return to the Mac to stop.
+        Idempotent: a watchdog already running is left in place.
+        """
+        with self._disconnect_watchdog_lock:
+            existing = self._disconnect_watchdog_thread
+            if existing is not None and existing.is_alive():
+                diag("disconnect_watchdog_start_ignored", reason="already_running")
+                return
+            stop_event = threading.Event()
+            self._disconnect_watchdog_stop = stop_event
+            thread = threading.Thread(
+                target=self._disconnect_watchdog_loop,
+                args=(stop_event,),
+                name="WhisperKeyDisconnectWatchdog",
+                daemon=True,
+            )
+            self._disconnect_watchdog_thread = thread
+        diag("disconnect_watchdog_start", device=getattr(self._recorder, "active_device_name", ""))
+        thread.start()
+
+    def _stop_disconnect_watchdog(self) -> None:
+        """Signal the watchdog to exit. Idempotent; safe to call from any path."""
+        with self._disconnect_watchdog_lock:
+            stop_event = self._disconnect_watchdog_stop
+            self._disconnect_watchdog_stop = None
+            self._disconnect_watchdog_thread = None
+        if stop_event is not None:
+            stop_event.set()
+
+    def _disconnect_watchdog_loop(self, stop_event: threading.Event) -> None:
+        consecutive = 0
+        while not stop_event.wait(WATCHDOG_TICK_S):
+            if not self._recorder.is_recording:
+                diag("disconnect_watchdog_exit", reason="not_recording")
+                return
+            if self._recorder.seconds_since_last_chunk > STALL_THRESHOLD_S:
+                consecutive += 1
+            else:
+                consecutive = 0
+            if consecutive >= 2:
+                device = getattr(self._recorder, "active_device_name", "")
+                diag(
+                    "recording_autostop_device_lost",
+                    device=device,
+                    stalled_s=f"{self._recorder.seconds_since_last_chunk:.2f}",
+                )
+                self._notify_device_disconnected()
+                # Same stop path as a hotkey release. _stop_and_transcribe tears
+                # the watchdog down again (idempotent) and guards on processing.
+                self._stop_and_transcribe()
+                self._hotkey.reset_state()
+                return
+
+    def _notify_device_disconnected(self) -> None:
+        if not self._service_running or self._overlay is None:
+            return
+        from whisperkey_mac.overlay import dispatch_to_main
+
+        dispatch_to_main(
+            self._overlay.show_device_disconnect_hint,
+            getattr(self._config, "ui_language", "en"),
+        )
+
     def _start_recording(self) -> None:
         if not hasattr(self, "_overlay") or self._overlay is None:
             diag("recording_start_ignored", reason="overlay_missing")
@@ -557,6 +639,11 @@ class ServiceController:
             device=getattr(self._recorder, "active_device_name", "") or "default",
             fell_back=getattr(self._recorder, "fell_back_to_default", False),
         )
+        # Only watch when a specific device is actually pinned and in use. If we
+        # fell back to default, active_device_name == "" → no watchdog (the
+        # default mic doesn't "disconnect" the same way; preserves compatibility).
+        if getattr(self._recorder, "active_device_name", ""):
+            self._start_disconnect_watchdog()
 
     def _hide_overlay_after_cancel(self, dismiss_duration_s: float = 0.15) -> None:
         if not hasattr(self, "_overlay") or self._overlay is None:
@@ -599,6 +686,9 @@ class ServiceController:
         return True
 
     def _stop_and_transcribe(self) -> None:
+        # Tear the watchdog down on every stop attempt (normal release, overlay
+        # toggle, or the watchdog's own auto-stop). Idempotent + cheap.
+        self._stop_disconnect_watchdog()
         if not hasattr(self, "_overlay") or self._overlay is None:
             diag("recording_stop_ignored", reason="overlay_missing")
             return

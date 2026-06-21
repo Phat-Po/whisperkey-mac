@@ -105,10 +105,20 @@ BUSY_MODE_SWITCH_HINT_LABELS = {
     "zh": "稍后",
 }
 
+DEVICE_DISCONNECT_HINT_LABELS = {
+    "en": "Mic disconnected, processing…",
+    "zh": "麦克风已断开，正在处理…",
+}
+
 
 def mode_switch_label_for_mode(mode: str, ui_language: str = "en") -> str:
     language = "zh" if ui_language == "zh" else "en"
     return MODE_SWITCH_LABELS[language].get(mode, MODE_SWITCH_LABELS[language]["disabled"])
+
+
+def device_disconnect_hint_label(ui_language: str = "en") -> str:
+    language = "zh" if ui_language == "zh" else "en"
+    return DEVICE_DISCONNECT_HINT_LABELS[language]
 
 
 def busy_mode_switch_hint_label(ui_language: str = "en") -> str:
@@ -1306,6 +1316,11 @@ class OverlayPanel:
     def show_busy_mode_switch_hint(self, ui_language: str = "en") -> None:
         label = busy_mode_switch_hint_label(ui_language)
         diag("overlay_show_busy_mode_switch_hint", label=label)
+        self._state_machine.show_busy_mode_switch_hint(label)
+
+    def show_device_disconnect_hint(self, ui_language: str = "en") -> None:
+        label = device_disconnect_hint_label(ui_language)
+        diag("overlay_show_device_disconnect_hint", label=label)
         self._state_machine.show_busy_mode_switch_hint(label)
 
     def hide_after_paste(self, dismiss_duration_s: float = 0.2) -> None:

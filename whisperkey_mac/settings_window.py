@@ -534,10 +534,15 @@ def build_settings_window_controller(
     launch_at_login_enabled: bool,
     on_save,
     on_hotkey_capture_active=None,
+    is_recording_provider=None,
 ):
-    return SettingsWindowController.alloc().initWithConfig_launchEnabled_onSave_hotkeyCaptureActive_(
+    controller = SettingsWindowController.alloc().initWithConfig_launchEnabled_onSave_hotkeyCaptureActive_(
         config, launch_at_login_enabled, on_save, on_hotkey_capture_active
     )
+    # Lets refreshMicDevices_ skip the PortAudio re-init while a stream is open
+    # (re-initializing PortAudio mid-recording would break the active stream).
+    controller._is_recording_provider = is_recording_provider or (lambda: False)
+    return controller
 
 
 # ── Controller ────────────────────────────────────────────────────────────────
@@ -1285,6 +1290,20 @@ class SettingsWindowController(NSObject):
 
     def refreshMicDevices_(self, _sender) -> None:
         """Re-query live input devices without reopening the window."""
+        # Re-enumerate PortAudio so a phone / mic connected since app launch is
+        # actually visible. GUARD: never re-init while a stream may be open — it
+        # would break the active recording — so skip the refresh in that case.
+        provider = getattr(self, "_is_recording_provider", None)
+        if provider is not None and provider():
+            diag("mic_refresh_skipped_recording")
+        else:
+            try:
+                import sounddevice as sd
+
+                sd._terminate()
+                sd._initialize()
+            except Exception:
+                pass  # never let a refresh failure crash the settings window
         selected = str(self._mic_popup.titleOfSelectedItem())
         if selected.endswith(_MIC_OFFLINE_SUFFIX):
             selected = selected[: -len(_MIC_OFFLINE_SUFFIX)]

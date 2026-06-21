@@ -360,6 +360,7 @@ class App:
                 launch_at_login_enabled=launch_enabled,
                 on_save=self._save_settings,
                 on_hotkey_capture_active=self._set_settings_hotkey_capture_active,
+                is_recording_provider=lambda: self._service.is_busy,
             )
             diag("app_settings_build_end")
         else:
