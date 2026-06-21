@@ -2,6 +2,27 @@
 
 ## Current
 
+### 2026-06-21 | v3.5.0 released — mic robustness + auto-stop on disconnect + Doubao dedup
+
+Done this session:
+- Shipped v3.5.0 (three workstreams). A: mic offline auto-fallback + 🔄 refresh (already in tree, verified). B: auto-stop when a pinned mic disconnects mid-recording (callback-stall watchdog → normal transcribe path) + auto-reconnect via PortAudio re-enumeration. C: fixed severe Doubao duplicated-output bug.
+- C root cause (confirmed via a live C-1 capture, instrumentation since removed): the v3 bigmodel re-recognizes the whole stream (rough pass + refined pass with overlapping utterance timestamps); old prefix-match accumulation treated each revision as a new utterance → duplication (captured 117 chars for a 53-char utterance). Fix: `show_utterances:true` + consume `result.utterances[]`, committing `definite` segments across messages and merging by TIME-SPAN OVERLAP (latest wins). Locked in by `test_re_recognition_overlapping_spans_dedup` built from the real capture.
+- Full suite 322 green. Built + signed (stable Apple Development cert), reinstalled `/Applications/WhisperKey.app` at 3.5.0 (clean startup verified). Tagged `v3.5.0`, pushed, GitHub release published, announced to 野生指挥部 + AI学习交流群（日不落版）.
+
+Current state:
+- Installed app is WhisperKey `3.5.0`. Commits: snapshot `d2f011e`, B `bcf8cbd`, C `3e3e6f1`. ASR engine `doubao`, processing mode `voice_cleanup`.
+
+Next steps:
+1. Operator to live-validate on-device (was skipped at publish per operator request): Doubao no-dup with filler-removal on; mic fallback; auto-stop on phone disconnect; auto-reconnect.
+2. Watch for any show_utterances:true side effects on the live overlay / online-correction path.
+
+Decisions / notes:
+- B watchdog only runs for a pinned (non-default) device; default mic users unaffected.
+- C: do NOT revert show_utterances to false — it's required for the dedup and C-1 proved recognition still works with it on.
+- App cannot force-wake an iPhone Continuity mic (macOS limit); B-3 only reconnects once macOS re-lists it.
+
+---
+
 ### 2026-06-15 | Doubao ASR engine refactor installed; next fix is utterance accumulation
 
 Done this session:
