@@ -12,6 +12,7 @@ from whisperkey_mac.service_controller import ServiceController
 
 class DummyService:
     is_busy = ServiceController.is_busy
+    _recover_if_busy_stuck = ServiceController._recover_if_busy_stuck
     _start_recording = ServiceController._start_recording
     _start_streaming_asr = ServiceController._start_streaming_asr
     _stop_and_transcribe = ServiceController._stop_and_transcribe
@@ -39,6 +40,7 @@ def _build_service() -> DummyService:
     service._transcribe_lock = threading.Lock()
     service._activity_lock = threading.Lock()
     service._processing_busy = False
+    service._processing_busy_since = 0.0
     service._ui_quiet_until = 0.0
     service._record_target_bundle_id = None
     service._disconnect_watchdog_thread = None

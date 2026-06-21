@@ -6,6 +6,9 @@ AUD-03: audio_level resets to 0.0 after cancel()
 AUD-04: audio_level resets to 0.0 after stop_and_save()
 """
 
+import threading
+import time
+
 import numpy as np
 import pytest
 import sounddevice as sd
@@ -256,3 +259,105 @@ def test_cancel_swallows_teardown_error(tmp_path, monkeypatch):
     rec.start()
     rec.cancel()  # must not raise
     assert rec.is_recording is False
+
+
+# --- Teardown DEADLOCK hardening (Fix 1) ----------------------------------
+# A removed device can make stop()/close() *block forever* in PortAudio's C
+# layer (not raise). The timeout helper must abandon the hung stream so the
+# caller returns and the service state machine recovers.
+
+class _HangingTeardownStream:
+    """Opens fine but blocks indefinitely in stop() — mimics a CoreAudio deadlock."""
+
+    def __init__(self, *, device=None, **_kw):
+        self.device = device
+        self.released = threading.Event()
+
+    def start(self):
+        pass
+
+    def stop(self):
+        self.released.wait()  # block until the test releases the zombie thread
+
+    def close(self):
+        pass
+
+
+def _patch_hanging_stream(monkeypatch, holder):
+    def _factory(*, device=None, **_kw):
+        stream = _HangingTeardownStream(device=device)
+        holder.append(stream)
+        return stream
+
+    monkeypatch.setattr(sd, "query_devices", lambda: _FAKE_DEVICES)
+    monkeypatch.setattr(sd, "InputStream", _factory)
+
+
+def test_cancel_returns_when_teardown_hangs(tmp_path, monkeypatch):
+    """Fix 1: cancel() returns promptly even if stream.stop() deadlocks."""
+    import whisperkey_mac.audio as audio_mod
+
+    monkeypatch.setattr(audio_mod, "_STREAM_CLOSE_TIMEOUT_S", 0.2)
+    streams: list = []
+    _patch_hanging_stream(monkeypatch, streams)
+    cfg = AppConfig(temp_dir=tmp_path, input_device="MacBook Pro Microphone")
+    rec = AudioRecorder(cfg)
+    rec.start()
+
+    t0 = time.monotonic()
+    rec.cancel()
+    elapsed = time.monotonic() - t0
+
+    assert elapsed < 1.0  # did not block on the hung teardown
+    assert rec.is_recording is False
+    assert rec._needs_pa_reset is True  # flagged for PortAudio reset
+    streams[0].released.set()  # let the zombie thread exit cleanly
+
+
+def test_stop_and_save_returns_when_teardown_hangs(tmp_path, monkeypatch):
+    """Fix 1: stop_and_save() returns promptly even if stream.stop() deadlocks."""
+    import whisperkey_mac.audio as audio_mod
+
+    monkeypatch.setattr(audio_mod, "_STREAM_CLOSE_TIMEOUT_S", 0.2)
+    streams: list = []
+    _patch_hanging_stream(monkeypatch, streams)
+    cfg = AppConfig(temp_dir=tmp_path, input_device="MacBook Pro Microphone")
+    rec = AudioRecorder(cfg)
+    rec.start()
+
+    t0 = time.monotonic()
+    result = rec.stop_and_save()  # no frames captured → None, must not hang
+    elapsed = time.monotonic() - t0
+
+    assert elapsed < 1.0
+    assert result is None
+    assert rec.is_recording is False
+    assert rec._needs_pa_reset is True
+    streams[0].released.set()
+
+
+def test_start_resets_portaudio_after_teardown_timeout(tmp_path, monkeypatch):
+    """Fix 1: a pending _needs_pa_reset forces a PortAudio re-init on next start,
+    even for the default device (which normally skips the re-init)."""
+    calls = {"term": 0, "init": 0}
+    monkeypatch.setattr(sd, "query_devices", lambda: _FAKE_DEVICES)
+
+    class _OkStream:
+        def __init__(self, *, device=None, **_kw):
+            self.device = device
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(sd, "InputStream", _OkStream)
+    monkeypatch.setattr(sd, "_terminate", lambda: calls.__setitem__("term", calls["term"] + 1))
+    monkeypatch.setattr(sd, "_initialize", lambda: calls.__setitem__("init", calls["init"] + 1))
+
+    cfg = AppConfig(temp_dir=tmp_path, input_device="")  # default device
+    rec = AudioRecorder(cfg)
+    rec._needs_pa_reset = True
+    rec.start()
+
+    assert calls["term"] == 1
+    assert calls["init"] == 1
+    assert rec._needs_pa_reset is False  # cleared after the reset

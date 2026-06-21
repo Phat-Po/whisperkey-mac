@@ -41,6 +41,13 @@ _AUTOPASTE_ALLOWLIST_BUNDLE_IDS = {"com.openai.codex", "com.tencent.xinWeChat", 
 STALL_THRESHOLD_S = 1.5
 WATCHDOG_TICK_S = 0.5
 
+# Backstop: if _processing_busy stays True longer than this, treat the stop
+# worker as wedged and force the state machine back to idle so the app recovers
+# instead of rejecting every recording with service_busy forever. Fix 1 already
+# bounds the known deadlock to ~2s; this is a generous safety net for any
+# unforeseen block, set well above the slowest legitimate transcription.
+BUSY_BACKSTOP_S = 90.0
+
 
 class ServiceController:
     def __init__(self, config: AppConfig) -> None:
@@ -51,6 +58,8 @@ class ServiceController:
         self._transcribe_lock = threading.Lock()
         self._activity_lock = threading.Lock()
         self._processing_busy = False
+        # Monotonic time when _processing_busy was last set True (0.0 = not busy).
+        self._processing_busy_since = 0.0
         self._ui_quiet_until = 0.0
         self._record_target_bundle_id: str | None = None
         self._overlay = None
@@ -101,6 +110,10 @@ class ServiceController:
             config.sample_rate != self._config.sample_rate
             or config.min_duration_s != self._config.min_duration_s
             or config.temp_dir != self._config.temp_dir
+            # A mic switch must tear down the old (possibly dead) stream and build
+            # a fresh recorder. Swapping config under a live/dead stream is what
+            # crashed the app when switching off a disconnected Continuity mic.
+            or getattr(config, "input_device", "") != getattr(self._config, "input_device", "")
         )
 
         was_running = self._service_running
@@ -604,10 +617,30 @@ class ServiceController:
             getattr(self._config, "ui_language", "en"),
         )
 
+    def _recover_if_busy_stuck(self) -> None:
+        """Force-clear a wedged _processing_busy so the app self-heals.
+
+        Belt-and-suspenders for the case where a stop worker blocks past every
+        internal timeout. Without this, _processing_busy stays True forever and
+        every recording is rejected with service_busy.
+        """
+        with self._activity_lock:
+            if not self._processing_busy or self._processing_busy_since == 0.0:
+                return
+            stuck_for = time.monotonic() - self._processing_busy_since
+            if stuck_for < BUSY_BACKSTOP_S:
+                return
+            self._processing_busy = False
+            self._processing_busy_since = 0.0
+            self._ui_quiet_until = 0.0
+        diag("processing_busy_backstop_reset", stuck_for_s=f"{stuck_for:.1f}")
+        self._hide_overlay_after_cancel()
+
     def _start_recording(self) -> None:
         if not hasattr(self, "_overlay") or self._overlay is None:
             diag("recording_start_ignored", reason="overlay_missing")
             return
+        self._recover_if_busy_stuck()
         if self.is_busy:
             diag("recording_start_ignored", reason="service_busy")
             self._hotkey.reset_state()
@@ -697,6 +730,7 @@ class ServiceController:
                 diag("recording_stop_ignored", reason="processing_busy")
                 return
             self._processing_busy = True
+            self._processing_busy_since = time.monotonic()
         target_bundle_id = self._record_target_bundle_id
         self._record_target_bundle_id = None
         diag("recording_stop_requested", target_bundle_id=target_bundle_id)
@@ -747,6 +781,7 @@ class ServiceController:
         finally:
             with self._activity_lock:
                 self._processing_busy = False
+                self._processing_busy_since = 0.0
                 self._ui_quiet_until = time.monotonic() + 2.0
             diag("recording_stop_worker_end")
 

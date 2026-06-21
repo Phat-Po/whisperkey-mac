@@ -28,6 +28,41 @@ def _input_device_online(name: str) -> bool:
     return False
 
 
+# Tearing down a CoreAudio input stream can deadlock in PortAudio's C layer when
+# the underlying device vanished mid-recording (e.g. an iPhone Continuity mic
+# that moved out of range, or a device switch in Settings). stop()/close() then
+# block forever inside __psynch_mutexwait and never raise, so a plain try/except
+# cannot rescue the caller. We run the teardown on a throwaway daemon thread and
+# abandon it if it does not finish in time, so the stop-and-transcribe worker is
+# never permanently wedged (which otherwise pins _processing_busy → service_busy).
+_STREAM_CLOSE_TIMEOUT_S = 2.0
+
+
+def _close_stream_safely(stream: "sd.InputStream", where: str) -> bool:
+    """Stop+close ``stream`` with a hard timeout.
+
+    Returns True if teardown finished cleanly, False if it timed out (the stream
+    is then abandoned as a leaked zombie — the only safe option for a deadlocked
+    CoreAudio device).
+    """
+    done = threading.Event()
+
+    def _teardown() -> None:
+        try:
+            stream.stop()
+            stream.close()
+        except Exception as exc:
+            diag("stream_close_error", where=where, error_type=type(exc).__name__)
+        finally:
+            done.set()
+
+    threading.Thread(target=_teardown, name="WhisperKeyStreamClose", daemon=True).start()
+    if done.wait(timeout=_STREAM_CLOSE_TIMEOUT_S):
+        return True
+    diag("stream_close_timeout", where=where, timeout_s=_STREAM_CLOSE_TIMEOUT_S)
+    return False
+
+
 @dataclass
 class AudioRecording:
     path: Path
@@ -51,6 +86,10 @@ class AudioRecorder:
         self.active_device_name: str = ""
         # True when the configured device was unavailable and we fell back to default.
         self.fell_back_to_default: bool = False
+        # Set when a stream teardown timed out (likely a deadlocked CoreAudio
+        # device). Forces a PortAudio re-init on the next start() so a fresh
+        # stream is not opened against the wedged global state.
+        self._needs_pa_reset: bool = False
         # Optional callback for streaming: called with raw PCM bytes (int16, mono)
         self.on_chunk: "Callable[[bytes], None] | None" = None
 
@@ -94,12 +133,15 @@ class AudioRecorder:
             # point, so re-initializing PortAudio is safe. Only pinned-device
             # users pay the ~100-300ms re-init cost; default-mic users skip it to
             # keep start latency low.
-            if configured:
+            # Also force the re-init when a previous teardown timed out, to clear
+            # any wedged PortAudio global state left by a deadlocked device.
+            if configured or self._needs_pa_reset:
                 try:
                     sd._terminate()
                     sd._initialize()
                 except Exception:
                     pass  # never block recording on a refresh failure
+                self._needs_pa_reset = False
 
             # Resolve the device to open. An empty name means system default.
             # If a specific device is configured but currently offline (e.g. an
@@ -162,12 +204,10 @@ class AudioRecorder:
             self._smoothed_level = 0.0
 
         if stream is not None:
-            try:
-                stream.stop()
-                stream.close()
-            except Exception as exc:
-                # A device removed mid-recording can make stop()/close() raise.
-                diag("stream_close_error", where="stop_and_save", error_type=type(exc).__name__)
+            # A device removed mid-recording can make stop()/close() raise OR
+            # deadlock; the timeout helper guarantees we return either way.
+            if not _close_stream_safely(stream, where="stop_and_save"):
+                self._needs_pa_reset = True
 
         with self._lock:
             if not self._frames:
@@ -195,11 +235,8 @@ class AudioRecorder:
             self._smoothed_level = 0.0
 
         if stream is not None:
-            try:
-                stream.stop()
-                stream.close()
-            except Exception as exc:
-                diag("stream_close_error", where="cancel", error_type=type(exc).__name__)
+            if not _close_stream_safely(stream, where="cancel"):
+                self._needs_pa_reset = True
 
     def _callback(
         self,
