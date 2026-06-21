@@ -121,8 +121,10 @@ def test_build_connect_message_has_no_app_field():
 
 
 def test_build_connect_message_matches_working_reference_params():
-    """v3 bigmodel: result_type/show_utterances/force_to_speech_time must match
-    the proven-working reference, otherwise the engine returns empty text."""
+    """v3 bigmodel: result_type "single" + force_to_speech_time keep recognition
+    working; show_utterances is True so the server returns result.utterances[]
+    (definite + start/end times) used to dedup the engine's re-recognition
+    passes. C-1 capture verified text still emits with show_utterances on."""
     asr = doubao_asr.DoubaoStreamingASR(doubao_asr.DoubaoConfig(
         app_id="test", access_key="key", cluster="test-cluster",
     ))
@@ -130,7 +132,7 @@ def test_build_connect_message_matches_working_reference_params():
     req = payload["request"]
 
     assert req["result_type"] == "single"
-    assert req["show_utterances"] is False
+    assert req["show_utterances"] is True
     assert req["vad"]["force_to_speech_time"] == 100
 
 
@@ -237,22 +239,6 @@ def test_is_configured_true_when_set():
 
 # ── Cost estimation ──────────────────────────────────────────────────────────
 
-def test_is_utterance_continuation_empty_current():
-    assert doubao_asr._is_utterance_continuation("", "hello") is True
-
-
-def test_is_utterance_continuation_cumulative():
-    assert doubao_asr._is_utterance_continuation("OK", "OK，测试") is True
-
-
-def test_is_utterance_continuation_correction_shorter():
-    assert doubao_asr._is_utterance_continuation("OK，测试一下", "OK，测试") is True
-
-
-def test_is_utterance_continuation_new_sentence():
-    assert doubao_asr._is_utterance_continuation("好的，功能上线了。", "鉴别我们的") is False
-
-
 def test_estimate_cost():
     cost = doubao_asr.estimate_cost(60.0)
     assert abs(cost - 1.98) < 0.01
@@ -357,6 +343,31 @@ def _v3_resp(text, flags):
     return header + struct.pack(">I", 0) + struct.pack(">I", len(pb)) + pb
 
 
+def _v3_resp_utt(text, utterances, flags):
+    """Build a v3 bigmodel response carrying a result.utterances[] array.
+
+    utterances: list of (text, definite, start_time, end_time) tuples.
+    """
+    payload = {
+        "audio_info": {"duration": 3000},
+        "result": {
+            "additions": {"log_id": "x"},
+            "text": text,
+            "utterances": [
+                {"text": ut, "definite": d, "start_time": s, "end_time": e}
+                for (ut, d, s, e) in utterances
+            ],
+        },
+    }
+    pb = json.dumps(payload, ensure_ascii=False).encode()
+    header = doubao_asr._build_header(
+        doubao_asr.MSG_TYPE_FULL_SERVER_RESPONSE,
+        flags=flags,
+        compression=doubao_asr.COMPRESSION_NONE,
+    )
+    return header + struct.pack(">I", 0) + struct.pack(">I", len(pb)) + pb
+
+
 def test_client_handles_v3_bigmodel_no_type_field():
     """Single utterance with cumulative partials returns one complete final."""
     cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
@@ -385,63 +396,102 @@ def test_client_handles_v3_bigmodel_no_type_field():
 
 
 def test_multi_utterance_accumulates_all_sentences():
-    """Multiple utterances (text resets at each boundary, all POS_SEQUENCE until
-    stream end NEG_SEQUENCE) must be joined so stop() returns the full transcript."""
+    """Distinct sentences (non-overlapping time spans) are all kept and joined in
+    time order — no sentence dropped (regression for the truncation bug)."""
     cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
     asr = doubao_asr.DoubaoStreamingASR(cfg)
-    partials = []
     finals = []
-    asr.on_partial = lambda t: partials.append(t)
     asr.on_final = lambda t: finals.append(t)
 
-    # Utterance 1: cumulative partials
-    u1_p1 = _v3_resp("好的", doubao_asr.POS_SEQUENCE)
-    u1_p2 = _v3_resp("好的，我们这个新的功能已经上线了。", doubao_asr.POS_SEQUENCE)
-    # Utterance 2: text resets (new sentence, still POS_SEQUENCE)
-    u2_p1 = _v3_resp("鉴别我们的", doubao_asr.POS_SEQUENCE)
-    u2_p2 = _v3_resp("鉴别我们的这个讲话的字。", doubao_asr.POS_SEQUENCE)
-    # Utterance 3: text resets again, then stream ends with NEG_SEQUENCE
-    u3_fin = _v3_resp("但他有一个免费的使用。",
+    s1 = _v3_resp_utt("好的，我们这个新的功能已经上线了。",
+                      [("好的，我们这个新的功能已经上线了。", True, 0, 3000)],
+                      doubao_asr.POS_SEQUENCE)
+    s2 = _v3_resp_utt("鉴别我们的这个讲话的字。",
+                      [("鉴别我们的这个讲话的字。", True, 3000, 6000)],
+                      doubao_asr.POS_SEQUENCE)
+    s3 = _v3_resp_utt("但他有一个免费的使用。",
+                      [("但他有一个免费的使用。", True, 6000, 9000)],
                       doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
 
     _timeout = _websocket_mod.WebSocketTimeoutException
     mock_ws = unittest.mock.MagicMock()
+    mock_ws.recv.side_effect = [s1, _timeout(), s2, s3, Exception("closed")]
+
+    with unittest.mock.patch("websocket.WebSocket", return_value=mock_ws):
+        asr.start()
+
+    final_text = asr.stop(timeout_s=2.0)
+    expected = "好的，我们这个新的功能已经上线了。鉴别我们的这个讲话的字。但他有一个免费的使用。"
+    assert final_text == expected
+    assert finals[-1] == expected
+    assert "\n" not in final_text
+
+
+def test_re_recognition_overlapping_spans_dedup():
+    """The engine re-recognizes the stream (an early rough pass, then a refined
+    pass with shifted-but-overlapping timestamps). Overlapping spans must REPLACE,
+    not append — regression for the Doubao filler-removal duplicated-output bug.
+    Sequence and expected text are from a real captured recording."""
+    cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
+    asr = doubao_asr.DoubaoStreamingASR(cfg)
+    finals = []
+    asr.on_final = lambda t: finals.append(t)
+
+    rough_s1 = _v3_resp_utt(
+        "我就说是，肯定是因为这个原因，不然人家为什么要删掉？",
+        [("我就说是，肯定是因为这个原因，不然人家为什么要删掉？", True, 2362, 9722)],
+        doubao_asr.POS_SEQUENCE)
+    rough_s2 = _v3_resp_utt(
+        "但他这个样子行为也很奇怪，好像是受了很多的侮辱。",
+        [("但他这个样子行为也很奇怪，好像是受了很多的侮辱。", True, 10762, 16902)],
+        doubao_asr.POS_SEQUENCE)
+    refined_s1 = _v3_resp_utt(
+        "我就说是，肯定是因为这个原因，不然人家好端端干嘛要删掉？",
+        [("我就说是，肯定是因为这个原因，不然人家好端端干嘛要删掉？", True, 862, 7422)],
+        doubao_asr.POS_SEQUENCE)
+    refined_s2 = _v3_resp_utt(
+        "但他这个行为也很奇怪，感觉好像是受了什么侮辱一样。",
+        [("但他这个行为也很奇怪，感觉好像是受了什么侮辱一样。", True, 8542, 13412)],
+        doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
+
+    _timeout = _websocket_mod.WebSocketTimeoutException
+    mock_ws = unittest.mock.MagicMock()
     mock_ws.recv.side_effect = [
-        u1_p1, u1_p2,
-        _timeout(),
-        u2_p1, u2_p2,
-        u3_fin,
-        Exception("closed"),
+        rough_s1, rough_s2, _timeout(),
+        refined_s1, refined_s2, Exception("closed"),
     ]
 
     with unittest.mock.patch("websocket.WebSocket", return_value=mock_ws):
         asr.start()
 
     final_text = asr.stop(timeout_s=2.0)
-
-    assert partials == ["好的", "好的，我们这个新的功能已经上线了。",
-                        "鉴别我们的", "鉴别我们的这个讲话的字。"]
-    expected = "好的，我们这个新的功能已经上线了。\n鉴别我们的这个讲话的字。\n但他有一个免费的使用。"
+    expected = ("我就说是，肯定是因为这个原因，不然人家好端端干嘛要删掉？"
+                "但他这个行为也很奇怪，感觉好像是受了什么侮辱一样。")
     assert final_text == expected
     assert finals[-1] == expected
+    assert "\n" not in final_text
+    assert final_text.count("但他") == 1      # S2 not duplicated
+    assert "为什么要删掉" not in final_text   # rough S1 superseded by refined
+    assert "很多的侮辱" not in final_text     # rough S2 superseded by refined
 
 
-def test_multi_utterance_partial_callback_shows_current_sentence_only():
-    """on_partial receives only the current sentence, not the joined full transcript."""
+def test_partial_callback_shows_live_sentence():
+    """on_partial receives the engine's live result.text (current sentence)."""
     cfg = doubao_asr.DoubaoConfig(app_id="test", access_key="key")
     asr = doubao_asr.DoubaoStreamingASR(cfg)
     partials = []
     asr.on_partial = lambda t: partials.append(t)
     asr.on_final = lambda _: None
 
-    u1_p1 = _v3_resp("第一句话。", doubao_asr.POS_SEQUENCE)
-    # Text resets → new utterance
-    u2_partial = _v3_resp("第二句", doubao_asr.POS_SEQUENCE)
-    u2_fin = _v3_resp("第二句话。",
-                      doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
+    p1 = _v3_resp_utt("第一句话。", [("第一句话。", True, 0, 2000)],
+                      doubao_asr.POS_SEQUENCE)
+    p2 = _v3_resp_utt("第二句", [("第二句", False, 2000, 3000)],
+                      doubao_asr.POS_SEQUENCE)
+    fin = _v3_resp_utt("第二句话。", [("第二句话。", True, 2000, 4000)],
+                       doubao_asr.POS_SEQUENCE | doubao_asr.NEG_SEQUENCE)
 
     mock_ws = unittest.mock.MagicMock()
-    mock_ws.recv.side_effect = [u1_p1, u2_partial, u2_fin, Exception("closed")]
+    mock_ws.recv.side_effect = [p1, p2, fin, Exception("closed")]
 
     with unittest.mock.patch("websocket.WebSocket", return_value=mock_ws):
         asr.start()
@@ -450,13 +500,12 @@ def test_multi_utterance_partial_callback_shows_current_sentence_only():
     assert partials == ["第一句话。", "第二句"]
 
 
-def test_stop_returns_all_finalized_utterances():
-    """stop() must return concatenated text from all utterance finals."""
+def test_stop_returns_final_text():
+    """stop() returns the assembled _final_text once finished."""
     asr = doubao_asr.DoubaoStreamingASR(doubao_asr.DoubaoConfig())
-    asr._utterances = ["句子一。", "句子二。"]
-    asr._final_text = "句子一。\n句子二。"
+    asr._final_text = "句子一。句子二。"
     asr._finished.set()
-    assert asr.stop() == "句子一。\n句子二。"
+    assert asr.stop() == "句子一。句子二。"
 
 
 def test_client_handles_server_error():

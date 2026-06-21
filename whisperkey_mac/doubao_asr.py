@@ -216,21 +216,6 @@ def _find_payload_fallback(data: bytes, compression: int) -> bytes:
     return data
 
 
-# ── Utterance accumulation ─────────────────────────────────────────────────
-
-def _is_utterance_continuation(current: str, incoming: str) -> bool:
-    """True if *incoming* is a cumulative extension or correction of *current*.
-
-    Within a single Doubao utterance, partials grow cumulatively
-    ("OK" → "OK，测试").  At utterance boundaries the text resets to a
-    completely new sentence.  We detect continuation by checking whether
-    either string is a prefix of the other.
-    """
-    if not current:
-        return True
-    return incoming.startswith(current) or current.startswith(incoming)
-
-
 # ── Streaming ASR client ────────────────────────────────────────────────────
 
 class DoubaoStreamingASR:
@@ -253,8 +238,11 @@ class DoubaoStreamingASR:
         self._running = False
         self._reqid = ""
         self._final_text = ""
-        self._utterances: list[str] = []
-        self._current_text = ""
+        # Finalized utterance segments as [start_time, end_time, text], merged by
+        # time-span overlap (latest recognition wins). See _merge_utterance.
+        self._committed_spans: list[list] = []
+        # Latest engine result.text (current sentence, cumulative) for partials.
+        self._live_text = ""
         self._connected = threading.Event()
         self._connect_failed = threading.Event()
         self._finished = threading.Event()
@@ -283,8 +271,8 @@ class DoubaoStreamingASR:
 
         self._reqid = str(uuid.uuid4())
         self._final_text = ""
-        self._utterances = []
-        self._current_text = ""
+        self._committed_spans = []
+        self._live_text = ""
         self._audio_queue = queue.Queue()
         with self._audio_buffer_lock:
             self._audio_buffer = bytearray()
@@ -408,7 +396,11 @@ class DoubaoStreamingASR:
                 # makes VAD commit a speech segment (without it the engine
                 # receives audio but never recognizes — empty text, 0 quota).
                 "result_type": "single",
-                "show_utterances": False,
+                # show_utterances:True returns result.utterances[] with per-segment
+                # `definite` + start/end timestamps. We rely on these to dedup the
+                # engine's re-recognition passes (see _merge_utterance). Verified
+                # via C-1 capture that recognition still emits full text with it on.
+                "show_utterances": True,
                 "enable_itn": True,
                 "enable_punc": True,
                 "vad": {
@@ -577,6 +569,33 @@ class DoubaoStreamingASR:
                 except Exception:
                     pass
 
+    def _merge_utterance(self, start: object, end: object, text: str) -> None:
+        """Merge a finalized utterance segment into committed spans.
+
+        The v3 bigmodel re-recognizes overlapping audio (an early rough pass,
+        then a refined pass with shifted timestamps). When a new segment overlaps
+        an existing one in time we REPLACE it (latest recognition wins) instead of
+        appending — appending is exactly what produced the duplicated lines.
+        Non-overlapping segments are distinct sentences and are kept in order.
+        """
+        if not text:
+            return
+        try:
+            start, end = int(start), int(end)
+        except (TypeError, ValueError):
+            start, end = 0, 0
+        for span in self._committed_spans:
+            if not (end <= span[0] or start >= span[1]):  # time-span overlap
+                span[0], span[1], span[2] = start, end, text
+                return
+        self._committed_spans.append([start, end, text])
+
+    def _assembled_text(self) -> str:
+        """Full transcript = committed segments joined in time order."""
+        return "".join(
+            s[2] for s in sorted(self._committed_spans, key=lambda x: x[0])
+        )
+
     def _handle_response(self, data: bytes) -> None:
         """Parse and handle a server response."""
         msg_type, flags, payload = _parse_message(data)
@@ -612,14 +631,17 @@ class DoubaoStreamingASR:
             self._finished.set()
             return
 
-        # Extract text from result — handles both dict and list formats
+        # Extract live text + structured utterance segmentation from result.
         result_data = payload.get("result", {})
         text = ""
+        utterances: list = []
         if isinstance(result_data, dict):
-            # v3 format: result is a dict with "text" directly
             t = result_data.get("text", "")
             if t and t.strip():
                 text = t.strip()
+            u = result_data.get("utterances")
+            if isinstance(u, list):
+                utterances = u
         elif isinstance(result_data, list):
             for item in result_data:
                 if isinstance(item, dict):
@@ -637,29 +659,40 @@ class DoubaoStreamingASR:
         # / other endpoints use a "type": "final" field, so honor both.
         is_final = resp_type == "final" or bool(flags & NEG_SEQUENCE)
 
-        if text:
-            if not _is_utterance_continuation(self._current_text, text):
-                if self._current_text:
-                    self._utterances.append(self._current_text)
-            self._current_text = text
+        # Commit finalized segments by time span. `definite` utterances are
+        # committed as they finalize; on the final packet we also merge any
+        # trailing (not-yet-definite) segment so a sentence ending exactly at
+        # stream close is not lost. _merge_utterance dedups the engine's
+        # re-recognition passes by time-span overlap (latest wins). Endpoints
+        # that send no utterances[] fall back to the live text below.
+        for u in utterances:
+            if isinstance(u, dict) and (u.get("definite") or is_final):
+                self._merge_utterance(
+                    u.get("start_time", 0),
+                    u.get("end_time", 0),
+                    (u.get("text") or "").strip(),
+                )
 
-            if is_final:
-                if not self._utterances or self._utterances[-1] != text:
-                    self._utterances.append(text)
-                self._final_text = "\n".join(self._utterances)
-                diag("doubao_final", text_len=len(text), total_len=len(self._final_text))
-                if self.on_final:
-                    self.on_final(self._final_text)
-                self._finished.set()
-            else:
-                self._final_text = "\n".join(self._utterances + [text]) if self._utterances else text
-                diag("doubao_partial", text_len=len(text))
-                if self.on_partial:
-                    self.on_partial(text)
-        elif is_final:
-            if self._utterances:
-                self._final_text = "\n".join(self._utterances)
+        if text:
+            self._live_text = text
+
+        if is_final:
+            self._final_text = self._assembled_text() or self._live_text
+            diag(
+                "doubao_final",
+                text_len=len(text),
+                total_len=len(self._final_text),
+                spans=len(self._committed_spans),
+            )
+            if self.on_final:
+                self.on_final(self._final_text)
             self._finished.set()
+        elif text:
+            # Best-effort value if stop() is reached before the final packet.
+            self._final_text = self._assembled_text() or text
+            diag("doubao_partial", text_len=len(text))
+            if self.on_partial:
+                self.on_partial(text)
 
 
 # ── Convenience functions ───────────────────────────────────────────────────
