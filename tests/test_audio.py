@@ -8,8 +8,9 @@ AUD-04: audio_level resets to 0.0 after stop_and_save()
 
 import numpy as np
 import pytest
+import sounddevice as sd
 
-from whisperkey_mac.audio import AudioRecorder
+from whisperkey_mac.audio import AudioRecorder, _input_device_online
 from whisperkey_mac.config import AppConfig
 
 
@@ -86,3 +87,93 @@ def test_audio_level_range_invariant(recorder):
     recorder._recording = False
     assert recorder.audio_level <= 1.0
     assert recorder.audio_level >= 0.0
+
+
+# --- Device resolution & fallback (AUD-05) -------------------------------
+
+_FAKE_DEVICES = [
+    {"name": "MacBook Pro Microphone", "max_input_channels": 1},
+    {"name": "MacBook Pro Speakers", "max_input_channels": 0},
+]
+
+
+def test_input_device_online_true(monkeypatch):
+    """AUD-05: a matching input-capable device is reported online."""
+    monkeypatch.setattr(sd, "query_devices", lambda: _FAKE_DEVICES)
+    assert _input_device_online("MacBook Pro Microphone") is True
+
+
+def test_input_device_online_false_for_offline_name(monkeypatch):
+    """AUD-05: a name not present in the live list is offline."""
+    monkeypatch.setattr(sd, "query_devices", lambda: _FAKE_DEVICES)
+    assert _input_device_online("iPhone Microphone") is False
+
+
+def test_input_device_online_false_for_output_only(monkeypatch):
+    """AUD-05: an output-only device is not a valid input device."""
+    monkeypatch.setattr(sd, "query_devices", lambda: _FAKE_DEVICES)
+    assert _input_device_online("MacBook Pro Speakers") is False
+
+
+def test_input_device_online_empty_is_false():
+    """AUD-05: empty name means default, never treated as a named device."""
+    assert _input_device_online("") is False
+
+
+class _FakeStream:
+    def __init__(self, *, device=None, **_kw):
+        # Raise for any specifically-named device to simulate it being offline.
+        if device is not None:
+            raise sd.PortAudioError("device unavailable")
+        self.device = device
+
+    def start(self):
+        pass
+
+
+def test_start_falls_back_when_device_offline(tmp_path, monkeypatch):
+    """AUD-05: configured-but-offline device resolves to default, no raise."""
+    monkeypatch.setattr(sd, "query_devices", lambda: _FAKE_DEVICES)
+    monkeypatch.setattr(sd, "InputStream", _FakeStream)
+    cfg = AppConfig(temp_dir=tmp_path, input_device="iPhone Microphone")
+    rec = AudioRecorder(cfg)
+    rec.start()
+    assert rec.is_recording
+    assert rec.fell_back_to_default is True
+    assert rec.active_device_name == ""
+
+
+def test_start_uses_configured_device_when_online(tmp_path, monkeypatch):
+    """AUD-05: an online configured device is opened as-is (no fallback)."""
+    opened = {}
+
+    class _OkStream:
+        def __init__(self, *, device=None, **_kw):
+            opened["device"] = device
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(sd, "query_devices", lambda: _FAKE_DEVICES)
+    monkeypatch.setattr(sd, "InputStream", _OkStream)
+    cfg = AppConfig(temp_dir=tmp_path, input_device="MacBook Pro Microphone")
+    rec = AudioRecorder(cfg)
+    rec.start()
+    assert rec.fell_back_to_default is False
+    assert rec.active_device_name == "MacBook Pro Microphone"
+    assert opened["device"] == "MacBook Pro Microphone"
+
+
+def test_start_retries_default_on_open_error(tmp_path, monkeypatch):
+    """AUD-05: if a device passes the online check but InputStream still
+    errors, _open_stream retries once with the default device."""
+    monkeypatch.setattr(
+        sd, "query_devices", lambda: [{"name": "Flaky Mic", "max_input_channels": 1}]
+    )
+    monkeypatch.setattr(sd, "InputStream", _FakeStream)  # raises for any named device
+    cfg = AppConfig(temp_dir=tmp_path, input_device="Flaky Mic")
+    rec = AudioRecorder(cfg)
+    rec.start()
+    assert rec.is_recording
+    assert rec.fell_back_to_default is True
+    assert rec.active_device_name == ""

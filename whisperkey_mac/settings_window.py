@@ -96,6 +96,9 @@ def _fmt_bytes(n: int) -> str:
     return f"{n:.1f} TB"
 
 
+_MIC_OFFLINE_SUFFIX = "  (offline)"
+
+
 def _get_input_devices() -> list[str]:
     """Return names of all available audio input devices."""
     try:
@@ -673,15 +676,11 @@ class SettingsWindowController(NSObject):
         y -= 28
 
         self._lbl(view, "Microphone", 20, y)
-        self._mic_popup = self._popup(view, 190, y - 4, 220)
-        self._mic_devices = _get_input_devices()
-        mic_items = ["System Default"] + self._mic_devices
-        self._mic_popup.addItemsWithTitles_(mic_items)
-        current_device = getattr(self._config, "input_device", "")
-        if current_device and current_device in self._mic_devices:
-            self._mic_popup.selectItemWithTitle_(current_device)
-        else:
-            self._mic_popup.selectItemWithTitle_("System Default")
+        self._mic_popup = self._popup(view, 190, y - 4, 185)
+        self._mic_refresh_button = self._small_button(view, "\U0001F504", 380, y - 3, 28)
+        self._mic_refresh_button.setTarget_(self)
+        self._mic_refresh_button.setAction_("refreshMicDevices:")
+        self._populate_mic_popup(getattr(self._config, "input_device", ""))
         y -= 22
         self._hint(view, _t("settings_general_mic_hint", lang), 190, y, width=230)
         y -= 28
@@ -1112,6 +1111,8 @@ class SettingsWindowController(NSObject):
             timeout = self._config.online_correct_timeout_s
 
         mic_title = str(self._mic_popup.titleOfSelectedItem())
+        if mic_title.endswith(_MIC_OFFLINE_SUFFIX):
+            mic_title = mic_title[: -len(_MIC_OFFLINE_SUFFIX)]
         input_device = "" if mic_title == "System Default" else mic_title
 
         # Doubao fields
@@ -1196,11 +1197,7 @@ class SettingsWindowController(NSObject):
         self._sync_custom_prompt_visibility()
         self._online_model_combo.setStringValue_(config.online_correct_model)
         self._timeout_field.setStringValue_(str(config.online_correct_timeout_s))
-        current_device = getattr(config, "input_device", "")
-        if current_device and current_device in self._mic_devices:
-            self._mic_popup.selectItemWithTitle_(current_device)
-        else:
-            self._mic_popup.selectItemWithTitle_("System Default")
+        self._populate_mic_popup(getattr(config, "input_device", ""))
         self._word_fix_view.setString_(word_replacements_to_text(getattr(config, "word_replacements", {})))
         self._hold_key_recorder.setValue_(config.hold_key)
         self._handsfree_recorder.setValue_(config.handsfree_keys)
@@ -1285,6 +1282,36 @@ class SettingsWindowController(NSObject):
 
     def promptModeChanged_(self, _sender) -> None:
         self._sync_custom_prompt_visibility()
+
+    def refreshMicDevices_(self, _sender) -> None:
+        """Re-query live input devices without reopening the window."""
+        selected = str(self._mic_popup.titleOfSelectedItem())
+        if selected.endswith(_MIC_OFFLINE_SUFFIX):
+            selected = selected[: -len(_MIC_OFFLINE_SUFFIX)]
+        if selected == "System Default":
+            selected = ""
+        self._populate_mic_popup(selected)
+
+    @objc.python_method
+    def _populate_mic_popup(self, current_device: str) -> None:
+        """(Re)build the microphone dropdown from live devices.
+
+        The list is always queried live. A configured-but-offline device is kept
+        as a selectable "(offline)" entry so the user can stay pinned to it —
+        recording auto-falls back to the default mic while it is disconnected.
+        """
+        self._mic_devices = _get_input_devices()
+        self._mic_popup.removeAllItems()
+        items = ["System Default"] + self._mic_devices
+        if current_device and current_device not in self._mic_devices:
+            items.append(current_device + _MIC_OFFLINE_SUFFIX)
+        self._mic_popup.addItemsWithTitles_(items)
+        if current_device and current_device in self._mic_devices:
+            self._mic_popup.selectItemWithTitle_(current_device)
+        elif current_device:
+            self._mic_popup.selectItemWithTitle_(current_device + _MIC_OFFLINE_SUFFIX)
+        else:
+            self._mic_popup.selectItemWithTitle_("System Default")
 
     @objc.python_method
     def _sync_custom_prompt_visibility(self) -> None:

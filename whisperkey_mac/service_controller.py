@@ -543,8 +543,20 @@ class ServiceController:
                 self._hotkey.reset_state()
                 return
 
-        self._recorder.start()
-        diag("recording_started")
+        try:
+            self._recorder.start()
+        except Exception as exc:
+            # Recording must never crash the hotkey listener callback. If even
+            # the default device fails to open, abort cleanly and reset state.
+            diag("recording_start_failed", error_type=type(exc).__name__)
+            self._hide_overlay_after_cancel()
+            self._hotkey.reset_state()
+            return
+        diag(
+            "recording_started",
+            device=getattr(self._recorder, "active_device_name", "") or "default",
+            fell_back=getattr(self._recorder, "fell_back_to_default", False),
+        )
 
     def _hide_overlay_after_cancel(self, dismiss_duration_s: float = 0.15) -> None:
         if not hasattr(self, "_overlay") or self._overlay is None:

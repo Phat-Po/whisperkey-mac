@@ -10,6 +10,21 @@ import sounddevice as sd
 import soundfile as sf
 
 from whisperkey_mac.config import AppConfig
+from whisperkey_mac.diagnostics import diag
+
+
+def _input_device_online(name: str) -> bool:
+    """True if an input-capable device matching ``name`` is currently available."""
+    if not name:
+        return False
+    try:
+        devices = sd.query_devices()
+    except Exception:
+        return False
+    for d in devices:
+        if d.get("max_input_channels", 0) > 0 and d.get("name") == name:
+            return True
+    return False
 
 
 @dataclass
@@ -26,6 +41,11 @@ class AudioRecorder:
         self._stream: sd.InputStream | None = None
         self._recording = False
         self._smoothed_level: float = 0.0
+        # Name of the device actually opened for the current/last recording.
+        # "" means the system default device was used.
+        self.active_device_name: str = ""
+        # True when the configured device was unavailable and we fell back to default.
+        self.fell_back_to_default: bool = False
         # Optional callback for streaming: called with raw PCM bytes (int16, mono)
         self.on_chunk: "Callable[[bytes], None] | None" = None
 
@@ -47,16 +67,57 @@ class AudioRecorder:
             self._config.temp_dir.mkdir(parents=True, exist_ok=True)
             self._frames = []
             self._smoothed_level = 0.0
-            device = getattr(self._config, "input_device", "") or None
-            self._stream = sd.InputStream(
+
+            configured = getattr(self._config, "input_device", "") or ""
+            # Resolve the device to open. An empty name means system default.
+            # If a specific device is configured but currently offline (e.g. an
+            # iPhone Continuity mic that disconnected), fall back to the default
+            # device instead of letting sounddevice raise.
+            device: str | None = configured or None
+            self.fell_back_to_default = False
+            if configured and not _input_device_online(configured):
+                diag("input_device_unavailable_fallback", configured=configured)
+                device = None
+                self.fell_back_to_default = True
+
+            self._stream = self._open_stream(device)
+            # _open_stream may have fallen back to default on a PortAudio error.
+            if self.fell_back_to_default:
+                self.active_device_name = ""
+            else:
+                self.active_device_name = "" if device is None else configured
+            self._stream.start()
+            self._recording = True
+
+    def _open_stream(self, device: str | None) -> sd.InputStream:
+        """Open an input stream, retrying once with the default device on failure."""
+        try:
+            return sd.InputStream(
                 samplerate=self._config.sample_rate,
                 channels=1,
                 dtype="float32",
                 device=device,
                 callback=self._callback,
             )
-            self._stream.start()
-            self._recording = True
+        except (ValueError, sd.PortAudioError) as exc:
+            if device is None:
+                # Already on the default device; nothing left to fall back to.
+                diag("recording_open_failed", device="default", error_type=type(exc).__name__)
+                raise
+            diag(
+                "recording_open_retry_default",
+                device=str(device),
+                error_type=type(exc).__name__,
+            )
+            stream = sd.InputStream(
+                samplerate=self._config.sample_rate,
+                channels=1,
+                dtype="float32",
+                device=None,
+                callback=self._callback,
+            )
+            self.fell_back_to_default = True
+            return stream
 
     def stop_and_save(self) -> AudioRecording | None:
         with self._lock:
