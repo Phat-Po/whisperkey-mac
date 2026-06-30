@@ -274,6 +274,32 @@ def _build_openai_client(api_key: str, timeout_s: float):
         return None
 
 
+def verify_openai_connection(api_key: str | None, timeout_s: float = 8.0) -> tuple[bool, str]:
+    """Check whether an OpenAI API key can actually connect.
+
+    Uses the provided key if non-empty, otherwise the stored Keychain key.
+    Makes one lightweight ``models.list()`` call (no token cost). Returns
+    ``(ok, code)`` where ``code`` is an i18n key the UI can translate directly.
+    """
+    key = (api_key or "").strip() or load_openai_api_key()
+    if not key:
+        return False, "openai_status_no_key"
+
+    client = _build_openai_client(key, timeout_s)
+    if client is None:
+        return False, "openai_status_sdk_missing"
+
+    # No auto-retry: a single failed attempt should report fast, not hang 3x.
+    try:
+        client.with_options(max_retries=0).models.list()
+    except Exception as exc:
+        name = type(exc).__name__
+        if "Authentication" in name or "PermissionDenied" in name:
+            return False, "openai_status_bad_key"
+        return False, "openai_status_failed"
+    return True, "openai_status_ok"
+
+
 def _extract_corrected_text(output_text: str) -> str | None:
     normalized = output_text.strip()
     if not normalized:

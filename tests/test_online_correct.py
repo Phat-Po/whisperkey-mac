@@ -4,7 +4,11 @@ from types import SimpleNamespace
 import unittest.mock
 
 from whisperkey_mac.config import AppConfig
-from whisperkey_mac.online_correct import maybe_correct_online, maybe_process_online
+from whisperkey_mac.online_correct import (
+    maybe_correct_online,
+    maybe_process_online,
+    verify_openai_connection,
+)
 
 
 def _config(**kwargs):
@@ -196,3 +200,76 @@ def test_doubao_asr_engine_keeps_selected_processing_mode():
     assert result == "Topic: 豆包接入"
     kwargs = fake_client.responses.create.call_args.kwargs
     assert "transcript-to-instruction editor" in kwargs["instructions"]
+
+
+def test_verify_openai_connection_no_key():
+    with unittest.mock.patch("whisperkey_mac.online_correct.load_openai_api_key", return_value=None):
+        ok, code = verify_openai_connection("")
+    assert ok is False
+    assert code == "openai_status_no_key"
+
+
+def test_verify_openai_connection_ok():
+    fake_client = unittest.mock.MagicMock()
+    fake_client.with_options.return_value = fake_client
+    fake_client.models.list.return_value = SimpleNamespace(data=[])
+
+    with unittest.mock.patch(
+        "whisperkey_mac.online_correct._build_openai_client", return_value=fake_client
+    ):
+        ok, code = verify_openai_connection("sk-test")
+    assert ok is True
+    assert code == "openai_status_ok"
+    fake_client.with_options.assert_called_once_with(max_retries=0)
+
+
+def test_verify_openai_connection_bad_key():
+    fake_client = unittest.mock.MagicMock()
+    fake_client.with_options.return_value = fake_client
+
+    class AuthenticationError(Exception):
+        pass
+
+    fake_client.models.list.side_effect = AuthenticationError("invalid api key")
+
+    with unittest.mock.patch(
+        "whisperkey_mac.online_correct._build_openai_client", return_value=fake_client
+    ):
+        ok, code = verify_openai_connection("sk-bad")
+    assert ok is False
+    assert code == "openai_status_bad_key"
+
+
+def test_verify_openai_connection_network_failure():
+    fake_client = unittest.mock.MagicMock()
+    fake_client.with_options.return_value = fake_client
+
+    class APITimeoutError(Exception):
+        pass
+
+    fake_client.models.list.side_effect = APITimeoutError("timed out")
+
+    with unittest.mock.patch(
+        "whisperkey_mac.online_correct._build_openai_client", return_value=fake_client
+    ):
+        ok, code = verify_openai_connection("sk-test")
+    assert ok is False
+    assert code == "openai_status_failed"
+
+
+def test_verify_openai_connection_falls_back_to_stored_key():
+    fake_client = unittest.mock.MagicMock()
+    fake_client.with_options.return_value = fake_client
+    fake_client.models.list.return_value = SimpleNamespace(data=[])
+
+    with (
+        unittest.mock.patch(
+            "whisperkey_mac.online_correct.load_openai_api_key", return_value="sk-stored"
+        ),
+        unittest.mock.patch(
+            "whisperkey_mac.online_correct._build_openai_client", return_value=fake_client
+        ) as build,
+    ):
+        ok, code = verify_openai_connection("")
+    assert ok is True
+    assert build.call_args.args[0] == "sk-stored"

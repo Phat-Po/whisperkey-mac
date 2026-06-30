@@ -27,3 +27,5 @@ handoff-*.md
 PROMPT-FOR-NEXT-AGENT.md
 .planning/
 scripts/tmp/
+# Internal planning artifacts and debug scripts — local only, not for public repo
+/tasks/

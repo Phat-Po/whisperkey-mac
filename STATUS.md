@@ -2,6 +2,27 @@
 
 ## Current
 
+### 2026-06-30 | v3.6.0 — OpenAI key "Test Connection" button + public-repo cleanup
+
+Done this session:
+- Diagnosed why Agent mode (`voice_cleanup`) sometimes "didn't organize": the OpenAI call intermittently took 47–91s (network/VPN stall) and exceeded the 30s timeout; the SDK's 2 auto-retries compounded one stall into a ~90s wait, then the `except` branch silently returned the raw transcript (no usage logged, no error shown). API/model/prompt/pipeline themselves verified healthy (3–5s, correct output). Root cause was transient network, amplified by silent retry + silent fallback.
+- Confirmed GitHub sync (local `main` == `origin/main`) and ran a full secret audit: no real keys in the tree or in git history; secrets live only in `~/.config/whisperkey/config.json` (gitignored) + Keychain.
+- Untracked internal dev docs + debug scripts (`git rm --cached` whole `tasks/`, kept on disk) and added `/tasks/` to `.gitignore` so the public repo stays clean.
+- Added **OpenAI "Test Connection"** button in Settings → Advanced: `verify_openai_connection()` in `online_correct.py` makes a real `models.list()` check (no token cost, `max_retries=0` so it fails fast), run on a background thread; status label shows ✅ connected / ❌ invalid key / ❌ network failure. Bilingual i18n (zh+en). 5 new unit tests; full suite 335 green. Live-verified against the real key (✅ 2s) and a bad key (❌ invalid).
+
+Current state:
+- App is WhisperKey `3.6.0`. ASR engine `doubao`, Agent (`voice_cleanup`) mode.
+
+Next steps:
+1. Operator: in the new build, open Settings → Advanced → "Test Connection" to confirm the key.
+2. Optional follow-up (not done): make the live correction path itself surface timeouts to the overlay + drop its auto-retries (H2 from the diagnosis), so a stall is visible instead of silently pasting raw text.
+
+Decisions / notes:
+- The Test button uses `models.list()` (connectivity + auth), not a `responses.create`, to stay free and fast.
+- Summary mode (`summary`) remains reachable only via the menu bar, not the hotkey cycle — unchanged this session.
+
+---
+
 ### 2026-06-22 | v3.5.1 — fix CoreAudio teardown deadlock (recording couldn't be stopped)
 
 Done this session:
@@ -26,78 +47,12 @@ Decisions / notes:
 
 ---
 
-### 2026-06-21 | v3.5.0 released — mic robustness + auto-stop on disconnect + Doubao dedup
-
-Done this session:
-- Shipped v3.5.0 (three workstreams). A: mic offline auto-fallback + 🔄 refresh (already in tree, verified). B: auto-stop when a pinned mic disconnects mid-recording (callback-stall watchdog → normal transcribe path) + auto-reconnect via PortAudio re-enumeration. C: fixed severe Doubao duplicated-output bug.
-- C root cause (confirmed via a live C-1 capture, instrumentation since removed): the v3 bigmodel re-recognizes the whole stream (rough pass + refined pass with overlapping utterance timestamps); old prefix-match accumulation treated each revision as a new utterance → duplication (captured 117 chars for a 53-char utterance). Fix: `show_utterances:true` + consume `result.utterances[]`, committing `definite` segments across messages and merging by TIME-SPAN OVERLAP (latest wins). Locked in by `test_re_recognition_overlapping_spans_dedup` built from the real capture.
-- Full suite 322 green. Built + signed (stable Apple Development cert), reinstalled `/Applications/WhisperKey.app` at 3.5.0 (clean startup verified). Tagged `v3.5.0`, pushed, GitHub release published, announced to 野生指挥部 + AI学习交流群（日不落版）.
-
-Current state:
-- Installed app is WhisperKey `3.5.0`. Commits: snapshot `d2f011e`, B `bcf8cbd`, C `3e3e6f1`. ASR engine `doubao`, processing mode `voice_cleanup`.
-
-Next steps:
-1. Operator to live-validate on-device (was skipped at publish per operator request): Doubao no-dup with filler-removal on; mic fallback; auto-stop on phone disconnect; auto-reconnect.
-2. Watch for any show_utterances:true side effects on the live overlay / online-correction path.
-
-Decisions / notes:
-- B watchdog only runs for a pinned (non-default) device; default mic users unaffected.
-- C: do NOT revert show_utterances to false — it's required for the dedup and C-1 proved recognition still works with it on.
-- App cannot force-wake an iPhone Continuity mic (macOS limit); B-3 only reconnects once macOS re-lists it.
-
----
-
-### 2026-06-15 | Doubao ASR engine refactor installed; next fix is utterance accumulation
-
-Done this session:
-- Refactored Doubao from a processing mode into a dedicated ASR engine (`asr_engine=local|doubao`) while keeping post-recognition processing mode separate.
-- Verified the refactor with full tests (`290 passed`), packaged the macOS app, installed it to `/Applications/WhisperKey.app`, and verified code signature.
-- Analyzed the operator's 47s overlay recording and identified that Doubao live results behave like current utterance text, not full cumulative transcript text.
-- Created the next handoff: `tasks/HANDOFF-20260615-doubao-streaming-utterance-accumulation.md`.
-
-Current state:
-The installed app is WhisperKey `3.2.3` with build time `2026-06-14 17:51:03`. Doubao can now be selected as a speech recognition engine, and processing mode remains `voice_cleanup` / ASR correction / custom / disabled. The next known bug is that Doubao final output can contain only the last sentence because `DoubaoStreamingASR` overwrites `_final_text` with each latest response.
-
-Next steps:
-1. Preserve the current ASR-engine refactor snapshot and start from the new handoff.
-2. Update `DoubaoStreamingASR` so final transcript accumulates finalized utterances while live overlay can keep showing only the current sentence.
-3. Add regression tests for multi-utterance Doubao responses, then run full tests and rebuild the app.
-
-Decisions / notes:
-- Do not add Summary behavior; current expected post-processing is `voice_cleanup`.
-- Do not change Doubao protocol params, single-thread WebSocket I/O, or PCM coalescing unless evidence requires it.
-- Installing to `/Applications` and `git push` remain confirm-first actions.
-
----
-
-### 2026-06-14 | Doubao packaged-app live ASR fixed; next step is ASR-engine UX refactor
-
-Done this session:
-- Diagnosed the packaged-app Doubao no-text failure: audio was being sent as thousands of 28-byte fragments, which kept the server from recognizing speech.
-- Fixed `DoubaoStreamingASR.feed_audio()` to coalesce PCM fragments into 100ms / 3200-byte chunks before queueing for the single WebSocket I/O thread; `finish()` now flushes any tail audio before the end sentinel.
-- Added focused tests for coalescing and final flush behavior.
-- Verified `tests/test_doubao_asr.py` (26 passed), full test suite (284 passed), controlled Doubao TTS ASR recognition, app build, and `/Applications` reinstall.
-- Operator manually confirmed packaged app now recognizes live Doubao speech.
-- Created handoff for the next product refactor: `tasks/HANDOFF-20260614-doubao-asr-engine-refactor.md`.
-
-Current state:
-- Doubao TLS race and packaged-app no-text failures are fixed.
-- `/Applications/WhisperKey.app` was rebuilt/reinstalled with build time `2026-06-14 17:23`.
-- Remaining product issue: Doubao is currently modeled as a processing mode, but it should be a speech recognition engine / voice model option. Text processing mode should remain separate.
-
-Next steps:
-1. Preserve and commit the working Doubao ASR fix if not already committed.
-2. Refactor config/UI/service flow so Doubao is selected as ASR engine, not text processing mode.
-3. Verify that Doubao only performs recognition and the selected post-processing mode still controls final text handling.
-
-Decisions / notes:
-- Keep Doubao protocol params and `NEG_SEQUENCE` final detection unchanged.
-- Keep single-thread WebSocket I/O; do not reintroduce TLS read/write concurrency.
-
----
-
 ## Milestones
 
+- 2026-06-22 | v3.5.1 released — CoreAudio teardown deadlock fix (recording-stuck/service_busy) | ✅
+- 2026-06-21 | v3.5.0 released — mic robustness + auto-stop on disconnect + Doubao dedup | ✅
+- 2026-06-15 | Doubao ASR engine refactor installed; utterance accumulation next | ✅
+- 2026-06-14 | Doubao packaged-app live ASR fixed; ASR-engine UX refactor next | ✅
 - 2026-06-14 | Doubao app audio no-text fixed by PCM coalescing; live packaged recognition confirmed | ✅
 - 2026-06-14 | Single-thread WebSocket I/O fixed packaged-app TLS crash | ✅
 - 2026-06-14 | Doubao v3 empty-text fixed via request params + NEG_SEQUENCE final detection | ✅

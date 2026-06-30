@@ -957,6 +957,25 @@ class SettingsWindowController(NSObject):
                 _t("doubao_status_not_configured", lang)
             )
 
+    def testOpenaiConnection_(self, _sender) -> None:
+        """Verify the OpenAI API key actually connects (real network call)."""
+        import threading
+        from whisperkey_mac.i18n import t as _t
+        from whisperkey_mac.overlay import dispatch_to_main
+        from whisperkey_mac.online_correct import verify_openai_connection
+
+        lang = getattr(self._config, "ui_language", "en")
+        # Use the freshly typed key if present; else fall back to the stored one.
+        key = str(self._api_key_field.stringValue()).strip()
+        timeout = min(getattr(self._config, "online_correct_timeout_s", 8.0) or 8.0, 15.0)
+        self._openai_status_label.setStringValue_(_t("openai_status_testing", lang))
+
+        def _worker():
+            ok, code = verify_openai_connection(key, timeout_s=timeout)
+            dispatch_to_main(self._openai_status_label.setStringValue_, _t(code, lang))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     @objc.python_method
     def _build_wordfix_tab(self, w: float, h: float) -> NSTabViewItem:
         view = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, w, h))
@@ -1085,6 +1104,16 @@ class SettingsWindowController(NSObject):
         self._hint(view, _t("settings_api_key_hint", lang), 190, y, width=230)
         y -= 18
         self._hint(view, _t("settings_api_key_get", lang), 190, y, width=230)
+        y -= 34
+
+        test_btn = NSButton.alloc().initWithFrame_(NSMakeRect(190.0, y - 2.0, 120.0, 24.0))
+        test_btn.setTitle_(_t("openai_test_btn", lang))
+        test_btn.setBezelStyle_(1)
+        test_btn.setTarget_(self)
+        test_btn.setAction_("testOpenaiConnection:")
+        view.addSubview_(test_btn)
+        y -= 26
+        self._openai_status_label = self._lbl(view, _t("openai_status_idle", lang), 190, y, width=230)
 
         return self._tab_item("Advanced", view)
 
