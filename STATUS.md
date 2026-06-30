@@ -2,6 +2,30 @@
 
 ## Current
 
+### 2026-06-30 | v3.6.1 free-unsigned release published; install failure handoff prepared
+
+Done this session:
+- Added professional macOS packaging split: Developer ID notarized release path remains strict, and a new `package_free_release.sh` creates clearly labeled `free-unsigned` ad-hoc+hardened-runtime artifacts.
+- Bumped app to `3.6.1`, built `WhisperKey-macOS-arm64-v3.6.1-free-unsigned.{dmg,zip}` plus SHA256SUMS, verified checksums, mounted DMG, confirmed app version/signature, and ran targeted tests (`38 passed`).
+- Pushed `main`, tagged `v3.6.1`, and published GitHub Release: https://github.com/Phat-Po/whisperkey-mac/releases/tag/v3.6.1
+- Operator reported downloaded app cannot open after dragging to Applications and no service/menu bar appears. Collected first evidence: installed app is `3.6.1`, `Signature=adhoc`, `Runtime Version=15.4.0`, `spctl` rejects it, and Chrome quarantine attributes remain across the bundle.
+- Wrote next-agent handoff: `tasks/HANDOFF-20260630-v3.6.1-free-unsigned-install-failure.md`.
+
+Current state:
+- Release is live but user install is blocked/unusable on this Mac. Most likely H1 is expected Gatekeeper quarantine behavior for an ad-hoc free build, but next agent must verify before changing code.
+- `/Applications/WhisperKey.app` exists; no active WhisperKey process or LaunchAgent was found during the evidence pass.
+
+Next steps:
+1. Next agent: start from `tasks/HANDOFF-20260630-v3.6.1-free-unsigned-install-failure.md`.
+2. Test H1 first: confirm right-click Open / Privacy & Security Open Anyway behavior; optionally test local-only `xattr -dr com.apple.quarantine /Applications/WhisperKey.app`.
+3. If Gatekeeper is not the only blocker, run direct executable + unified log diagnostics for a packaging/runtime crash.
+
+Decisions / notes:
+- No Developer ID is available; do not claim a no-warning normal install is possible for the free build.
+- Keep free artifacts labeled `free-unsigned`; do not silently replace them with ad-hoc files under normal release names.
+
+---
+
 ### 2026-06-30 | v3.6.0 — OpenAI key "Test Connection" button + public-repo cleanup
 
 Done this session:
