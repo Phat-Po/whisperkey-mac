@@ -5,6 +5,26 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
 APP_PATH="${ROOT_DIR}/dist/WhisperKey.app"
 RELEASE_DIR="${ROOT_DIR}/dist/release"
+SKIP_NOTARIZATION=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --skip-notarization)
+      SKIP_NOTARIZATION=1
+      shift
+      ;;
+    -h|--help)
+      echo "Usage: $0 [--skip-notarization]"
+      echo "  Creates a Developer ID signed, notarized release by default."
+      echo "  --skip-notarization is only for local packaging diagnostics."
+      exit 0
+      ;;
+    *)
+      echo "[whisperkey] Unknown argument: $1" >&2
+      exit 2
+      ;;
+  esac
+done
 
 cd "${ROOT_DIR}"
 
@@ -13,7 +33,13 @@ if [[ ! -x "${PYTHON_BIN}" ]]; then
   exit 1
 fi
 
-"${ROOT_DIR}/packaging/macos/build_app.sh"
+"${ROOT_DIR}/packaging/macos/build_app.sh" --release
+
+if [[ "${SKIP_NOTARIZATION}" -eq 0 ]]; then
+  "${ROOT_DIR}/packaging/macos/notarize_release.sh" "${APP_PATH}"
+else
+  echo "[whisperkey] WARNING: skipping notarization; artifacts are not customer-ready." >&2
+fi
 
 VERSION="$("${PYTHON_BIN}" - <<'PY'
 from pathlib import Path
@@ -44,11 +70,7 @@ WhisperKey 安装 / Install
    Drag WhisperKey.app into the Applications folder.
 
 2. 首次打开：在「应用程序」里右键点击 WhisperKey → 打开。
-   如果系统提示「无法验证开发者」，去 系统设置 → 隐私与安全性，
-   点「仍要打开」。
    First launch: right-click WhisperKey in Applications → Open.
-   If macOS says the developer cannot be verified, go to
-   System Settings → Privacy & Security and click "Open Anyway".
 
 3. 跟随安装向导授予 辅助功能 / 输入监控 / 麦克风 权限，
    然后点「重启 WhisperKey」完成安装。
@@ -58,6 +80,13 @@ NOTE
 
 hdiutil create -volname "WhisperKey ${VERSION}" \
   -srcfolder "${STAGING_DIR}" -ov -format UDZO "${DMG_PATH}" >/dev/null
+
+if [[ "${SKIP_NOTARIZATION}" -eq 0 ]]; then
+  "${ROOT_DIR}/packaging/macos/notarize_release.sh" "${DMG_PATH}"
+  "${ROOT_DIR}/packaging/macos/verify_release.sh" "${APP_PATH}"
+else
+  "${ROOT_DIR}/packaging/macos/verify_release.sh" --allow-unstapled "${APP_PATH}"
+fi
 
 echo "[whisperkey] Release artifacts:"
 ls -lh "${ZIP_PATH}" "${DMG_PATH}"

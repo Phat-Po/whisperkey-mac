@@ -91,8 +91,10 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 
 1. Download `WhisperKey-macOS-arm64-v<version>.dmg` from the [Releases page](https://github.com/Phat-Po/whisperkey-mac/releases).
 2. Open the DMG and drag `WhisperKey.app` into the `Applications` folder.
-3. First launch: right-click `WhisperKey.app` → **Open**. If macOS says the developer cannot be verified, go to **System Settings → Privacy & Security** and click **Open Anyway** (the build is signed but not notarized by Apple — this prompt appears only once).
+3. First launch: right-click `WhisperKey.app` → **Open**.
 4. WhisperKey shows a **setup window** listing the permissions it needs — **Accessibility**, **Input Monitoring**, and **Microphone** — with one-click buttons that jump to the right System Settings pane. Grant each one, then click **Restart WhisperKey** in the setup window to finish.
+
+Free unsigned builds are labeled `free-unsigned`. They are not Apple-notarized, so macOS may require **System Settings → Privacy & Security → Open Anyway** on first launch.
 
 If you launch the app from `Downloads` instead, WhisperKey offers to move itself into `Applications` automatically.
 
@@ -314,7 +316,7 @@ For source installs this is usually Python.app:
 ```
 For the packaged build, authorize `WhisperKey.app`.
 
-> **Note**: each packaged build has a different CDHash, so after upgrading the `.app` you must re-authorize both permissions.
+> **Note**: customer releases are Developer ID signed and notarized so macOS can preserve permissions across app updates. Local ad-hoc or Apple Development test builds may still require re-authorizing permissions after rebuilds.
 
 ---
 
@@ -436,7 +438,7 @@ whisperkey_mac/
 └── help_cmd.py           # Troubleshooter
 ```
 
-Packaging: `packaging/macos/build_app.sh` (PyInstaller + codesign) → `packaging/macos/package_release.sh` (zip for Releases).
+Packaging: `packaging/macos/build_app.sh` creates local development builds. `packaging/macos/package_free_release.sh` creates free unsigned public artifacts. `packaging/macos/package_release.sh` creates Developer ID notarized customer artifacts and requires a `Developer ID Application` certificate plus an Apple notarization keychain profile named `whisperkey-notary` by default.
 
 Hotkey diagnostics: `scripts/debug_raw_cgevent_tap.py` logs raw macOS key events and helps verify whether a modifier+character combo reaches CGEventTap before pynput translates it.
 

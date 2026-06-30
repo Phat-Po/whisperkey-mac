@@ -88,8 +88,10 @@ WhisperKey 以 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) 在�
 
 1. 到 [Releases 页面](https://github.com/Phat-Po/whisperkey-mac/releases) 下载 `WhisperKey-macOS-arm64-v<版本号>.dmg`。
 2. 打开 DMG，把 `WhisperKey.app` 拖进 `Applications`（应用程序）文件夹。
-3. 首次启动：在「应用程序」里右键 `WhisperKey.app` → **打开**。若 macOS 提示「无法验证开发者」，到 **系统设置 → 隐私与安全性** 点 **仍要打开**（此版本已签名但未经 Apple 公证，该提示只出现一次）。
+3. 首次启动：在「应用程序」里右键 `WhisperKey.app` → **打开**。
 4. WhisperKey 会弹出**安装向导**，列出需要的权限 —— **辅助功能**、**输入监控**、**麦克风**，每项都有按钮直接跳到对应的系统设置页面。全部授权后，点向导里的 **重启 WhisperKey** 完成安装。
+
+免费未公证包会标注为 `free-unsigned`。它没有 Apple 公证，所以 macOS 首次启动时可能需要到 **系统设置 → 隐私与安全性 → 仍要打开** 手动确认。
 
 如果直接从「下载」文件夹启动，WhisperKey 会主动提示把自己移动到「应用程序」。
 
@@ -311,7 +313,7 @@ WhisperKey 需要两个 macOS 系统权限：
 ```
 打包版本则授权 `WhisperKey.app`。
 
-> **注意**：每次打包 CDHash 都会变，所以升级 `.app` 后需重新授权两个权限。
+> **注意**：客户发布版使用 Developer ID 签名并完成 Apple 公证，macOS 可在 App 更新后延续权限。本地 ad-hoc 或 Apple Development 测试包仍可能在每次重打包后要求重新授权。
 
 ---
 
@@ -433,7 +435,7 @@ whisperkey_mac/
 └── help_cmd.py           # 故障排查工具
 ```
 
-打包：`packaging/macos/build_app.sh`（PyInstaller + codesign）→ `packaging/macos/package_release.sh`（打 zip 上传 Release）。
+打包：`packaging/macos/build_app.sh` 用于本地开发包；`packaging/macos/package_free_release.sh` 用于免费未公证公开包；`packaging/macos/package_release.sh` 用于 Developer ID 公证客户发布包，默认要求 `Developer ID Application` 证书和名为 `whisperkey-notary` 的 Apple 公证 keychain profile。
 
 快捷键诊断：`scripts/debug_raw_cgevent_tap.py` 会记录 macOS 原始按键事件，可用于确认 modifier+character 组合是否在 pynput 转译前到达 CGEventTap。
 
