@@ -95,7 +95,43 @@ if [[ "${BUILD_MODE}" == "release" ]]; then
 elif [[ "${BUILD_MODE}" == "free-release" ]]; then
   echo "[whisperkey] Signing free public build with ad-hoc identity."
   echo "[whisperkey] This build is not notarized and will require Gatekeeper manual approval after download."
-  codesign --force --deep --options runtime --sign - --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
+
+  # Fix for v3.6.1 / v3.6.2 macOS 26 launch failure:
+  # PyInstaller 6.x bootloader writes a fixed LC_UUID
+  # (75FD4F7C-B92A-331C-BC17-5DDB94DA706D) into the embedded
+  # Python.framework binary. Under hardened runtime on macOS 26,
+  # library validation compares the host's UUID against the loaded
+  # dylib's UUID and refuses to dlopen with "different Team IDs".
+  # The UUID is hard-coded in the framework's Mach-O header and is
+  # not affected by codesign --force --deep (which only rewrites
+  # the code signature blob, not the LC_UUID load command).
+  #
+  # This is a PyInstaller upstream issue; the only reliable
+  # workaround for a free unsigned build is to NOT enable hardened
+  # runtime. Without --options runtime, macOS skips the UUID check
+  # and the embedded framework loads normally.
+  #
+  # Trade-off: the free build loses hardened runtime's
+  # library-validation / process-restriction protections. For a
+  # free, ad-hoc, not-notarized public build this is acceptable —
+  # the user already runs unverified code by definition. The
+  # Developer ID --release path below keeps hardened runtime
+  # because it is the only one users can actually trust.
+  #
+  # We also strip the bootloader-installed nested signatures under
+  # Contents/Frameworks so the subsequent --deep --sign - produces
+  # a consistent signing chain across the bundle.
+  echo "[whisperkey] Stripping nested signatures under Contents/Frameworks..."
+  if [[ -d "${APP_PATH}/Contents/Frameworks" ]]; then
+    # NUL-delimited find keeps paths with newlines/spaces safe.
+    while IFS= read -r -d '' bin; do
+      codesign --remove-signature "${bin}" >/dev/null 2>&1 || true
+    done < <(find "${APP_PATH}/Contents/Frameworks" -type f \( -name '*.dylib' -o -name '*.so' -o -name 'Python' -o -name '*.bundle' \) -print0)
+    codesign --remove-signature "${APP_PATH}/Contents/Frameworks/Python.framework" >/dev/null 2>&1 || true
+  fi
+
+  # NOTE: free-release does NOT pass --options runtime. See comment above.
+  codesign --force --deep --sign - --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
 else
   if [[ -z "${SIGN_IDENTITY}" ]]; then
     SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/{print $2; exit}')"
