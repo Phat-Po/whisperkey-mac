@@ -242,10 +242,10 @@ def _should_process_online(text: str, config: AppConfig, mode: str) -> bool:
     if mode in {"voice_cleanup", "summary"}:
         # Skip max_chars and CJK ratio checks — these handle long/mixed text
         return len(text) >= config.online_correct_min_chars
-    # asr_correction: apply all guards
+    # asr_correction: apply remaining guards (no max_chars cap — long
+    # transcripts still need filler removal, and cost is bounded by
+    # max_output_tokens)
     if len(text) < config.online_correct_min_chars:
-        return False
-    if len(text) > config.online_correct_max_chars:
         return False
     if getattr(config, "output_language", "auto") in {"en", "zh"}:
         return True
