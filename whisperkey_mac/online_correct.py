@@ -133,6 +133,15 @@ def _summary_prompt(config: AppConfig) -> str:
     return _SUMMARY_PROMPT
 
 
+def _correction_max_output_tokens(text: str) -> int:
+    """Scale the output cap with input length so long transcripts aren't
+    hard-truncated mid-sentence (asr_correction should roughly preserve
+    length, not compress it). Floor matches the other modes' 1024;
+    ceiling bounds cost for very long recordings.
+    """
+    return min(4096, max(1024, len(text) * 2))
+
+
 def _asr_correction_instructions(config: AppConfig) -> str:
     output_lang = getattr(config, "output_language", "auto")
     if output_lang == "en":
@@ -207,7 +216,7 @@ def maybe_process_online(text: str, config: AppConfig) -> str:
             model=config.online_correct_model,
             instructions=_asr_correction_instructions(config),
             input=f"Transcript:\n{normalized}",
-            max_output_tokens=256,
+            max_output_tokens=_correction_max_output_tokens(normalized),
         )
         try:
             u = response.usage
