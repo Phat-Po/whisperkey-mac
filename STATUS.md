@@ -2,6 +2,26 @@
 
 ## Current
 
+### 2026-07-02 | v3.6.3 — fix asr_correction truncating long recordings
+
+Done this session:
+- Diagnosed a live report: recordings over ~3-4 minutes got truncated mid-sentence, on both the local Whisper and Doubao ASR backends. Traced it to a shared downstream step — `online_correct.py`'s "Remove Fillers" (`asr_correction`) mode, which runs after either transcription engine when online correction is enabled, had `max_output_tokens=256` hardcoded (vs 512-1024 for the other modes). Long transcripts' corrected output silently hit that cap and got cut off.
+- Fix (`online_correct.py`): `max_output_tokens` for `asr_correction` now scales with input length (`min(4096, max(1024, len(text) * 2))`) instead of a flat 256.
+- Full suite 335 green. Built + packaged free-unsigned v3.6.3 (zip/dmg/checksums).
+
+Current state:
+- App is WhisperKey `3.6.3`.
+
+Next steps:
+1. Operator: record 3-4+ minutes with "Remove Fillers" (asr_correction) mode enabled, confirm the pasted text is no longer truncated.
+2. If truncation still reproduces, next hypothesis is the Doubao streaming `stop(timeout_s=5.0)` early-return in `service_controller.py` (H2 from the diagnosis, not yet investigated).
+
+Decisions / notes:
+- This only affects users with "AI 在线校正 / 去除口癖" (`online_correct_enabled`) turned on — off by default.
+- Ceiling of 4096 tokens bounds cost for very long recordings; not a proven-safe max, just a sane guard.
+
+---
+
 ### 2026-06-30 | v3.6.0 — OpenAI key "Test Connection" button + public-repo cleanup
 
 Done this session:
