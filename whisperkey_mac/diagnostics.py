@@ -5,7 +5,6 @@ import os
 import resource
 import signal
 import threading
-import time
 from pathlib import Path
 from subprocess import run as _subprocess_run
 from typing import TextIO
@@ -15,15 +14,20 @@ FAULT_LOG_PATH = Path("/tmp/whisperkey-faulthandler.log")
 DIAG_LOG_PATH = Path("/tmp/whisperkey-diag.log")
 DIAG_LOG_MAX_BYTES = 10 * 1024 * 1024
 _DIAG_ROTATE_CHECK_EVERY = 500
-_METRICS_CACHE_TTL_S = 2.0
 
 _fault_log_file: TextIO | None = None
 _diag_log_file: TextIO | None = None
 _diag_write_count = 0
-_metrics_cache: tuple[float, dict[str, str]] | None = None
 _periodic_thread: threading.Thread | None = None
 _periodic_stop = threading.Event()
 _state_lock = threading.Lock()
+
+_metrics_lock = threading.Lock()
+_cached_metrics: dict[str, str] = {
+    "rss_mb": "?",
+    "cpu_pct": "?",
+    "threads": "?",
+}
 
 
 def enable_faulthandler(log_path: Path | str = FAULT_LOG_PATH) -> None:
@@ -47,6 +51,7 @@ def start_periodic_metrics(interval_s: float = 10.0, event: str = "periodic") ->
         if _periodic_thread is not None and _periodic_thread.is_alive():
             return
         _periodic_stop.clear()
+        _refresh_metrics_cache()
         _periodic_thread = threading.Thread(
             target=_periodic_loop,
             args=(interval_s, event),
@@ -119,22 +124,13 @@ def diag(event: str, **fields: object) -> None:
 
 def _periodic_loop(interval_s: float, event: str) -> None:
     while not _periodic_stop.wait(interval_s):
+        _refresh_metrics_cache()
         diag(event)
 
 
-def _collect_metrics() -> dict[str, str]:
-    # diag() runs on hot paths (tap callbacks, transcription threads), so the
-    # ps-based numbers are cached: at most one ps fork per TTL window.
-    global _metrics_cache
-
-    now = time.monotonic()
-    cached = _metrics_cache
-    if cached is not None and now - cached[0] < _METRICS_CACHE_TTL_S:
-        return cached[1]
-
+def _refresh_metrics_cache() -> None:
     pid = os.getpid()
     rss_kb, cpu_pct, threads = _metrics_from_ps(pid)
-    maxrss_kb = str(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
     rss_mb = "?"
     if rss_kb is not None:
@@ -143,14 +139,29 @@ def _collect_metrics() -> dict[str, str]:
         except (TypeError, ValueError):
             rss_mb = "?"
 
-    metrics = {
+    with _metrics_lock:
+        _cached_metrics["rss_mb"] = rss_mb
+        _cached_metrics["cpu_pct"] = cpu_pct or "?"
+        _cached_metrics["threads"] = threads or "?"
+
+
+def _collect_metrics() -> dict[str, str]:
+    # diag() runs on hot paths (tap callbacks, transcription threads), so the
+    # ps-based numbers are never forked here — they're refreshed in the
+    # background by _periodic_loop() and just read from cache.
+    maxrss_kb = str(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+
+    with _metrics_lock:
+        rss_mb = _cached_metrics["rss_mb"]
+        cpu_pct = _cached_metrics["cpu_pct"]
+        threads = _cached_metrics["threads"]
+
+    return {
         "rss_mb": rss_mb,
-        "cpu_pct": cpu_pct or "?",
-        "threads": threads or "?",
+        "cpu_pct": cpu_pct,
+        "threads": threads,
         "maxrss_kb": maxrss_kb,
     }
-    _metrics_cache = (now, metrics)
-    return metrics
 
 
 def _metrics_from_ps(pid: int) -> tuple[str | None, str | None, str | None]:

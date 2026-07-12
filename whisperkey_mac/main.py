@@ -340,7 +340,7 @@ class App:
 
     def open_settings(self) -> None:
         diag("app_open_settings_start")
-        if self._service.is_busy:
+        if self._service.is_actively_working:
             diag("app_open_settings_deferred", reason="service_busy")
             if not self._settings_retry_pending:
                 from PyObjCTools.AppHelper import callLater
@@ -380,7 +380,7 @@ class App:
 
     def _save_settings(self, config: AppConfig, api_key: str | None, launch_enabled: bool) -> None:
         diag("app_save_settings_start", launch_enabled=launch_enabled)
-        if self._service.is_busy:
+        if self._service.is_actively_working:
             diag("app_save_settings_deferred", reason="service_busy")
             self._pending_settings_save = (config, api_key, launch_enabled)
             if not self._settings_save_retry_pending:

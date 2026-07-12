@@ -1051,7 +1051,7 @@ class SettingsWindowController(NSObject):
         self._usage_text_view = NSTextView.alloc().initWithFrame_(
             NSMakeRect(0.0, 0.0, w - 40.0, h - 70.0)
         )
-        self._usage_text_view.setString_(self._usage_text())
+        self._usage_text_view.setString_("Click Refresh to load")
         self._usage_text_view.setFont_(NSFont.fontWithName_size_("Menlo", 11.0))
         self._usage_text_view.setEditable_(False)
         self._usage_text_view.setSelectable_(True)
@@ -1063,7 +1063,23 @@ class SettingsWindowController(NSObject):
         return self._tab_item("Usage", view)
 
     def refreshUsage_(self, _sender) -> None:
-        self._usage_text_view.setString_(self._usage_text())
+        self._load_usage_async()
+
+    @objc.python_method
+    def _load_usage_async(self) -> None:
+        import threading
+
+        from whisperkey_mac.overlay import dispatch_to_main
+
+        def worker() -> None:
+            try:
+                text = self._usage_text()
+            except Exception as exc:
+                diag("settings_usage_load_error", error_type=type(exc).__name__)
+                text = "Failed to load usage info"
+            dispatch_to_main(self._usage_text_view.setString_, text)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     @objc.python_method
     def _build_advanced_tab(self, w: float, h: float) -> NSTabViewItem:
