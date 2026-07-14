@@ -2,6 +2,29 @@
 
 ## Current
 
+### 2026-07-13 | v3.6.4 — hotkey tap stability, zero-fork diagnostics, instant settings apply
+
+Done this session:
+- Fixed the "hotkey stops working, especially after switching Bluetooth keyboards" bug via a five-part root-cause chain: `diagnostics.py`'s `diag()` forked a `ps` subprocess on every hotkey press inside the synchronous CGEventTap callback (perceptible lag); macOS's `kCGEventTapDisabledByTimeout` protection silently killed the tap when that callback ran too slow, and pynput 1.8.1 never re-enabled it (hotkey death until app restart); a disconnected Bluetooth key held mid-press left a permanent "ghost key" in `_held_keys` with no expiry.
+- `diagnostics.py`: `diag()` now reads from a background-refreshed cache (10s cycle) — zero subprocess forks on the hot path.
+- `keyboard_listener.py` / `service_controller.py`: tap reference exposed; auto `CGEventTapEnable` re-enable + logging on `TapDisabledByTimeout`; existing 3s AX-monitor loop now double-checks tap liveness as a watchdog; `_held_keys` changed to `dict[key, timestamp]` with a 45s TTL sweep for ghost keys.
+- `main.py` / `service_controller.py`: new `is_actively_working` flag (excludes the 2s post-dictation UI-quiet window) — settings save/apply no longer waits behind it.
+- `settings_window.py`: Usage tab lazy-loads (shows "Click Refresh to load" instead of scanning the multi-GB HF cache synchronously on window open).
+- `config.py`: `save_config` now writes via tmp file + `os.replace` for atomic saves.
+- 337 tests green. Operator confirmed fixed on-device.
+
+Current state:
+- App is WhisperKey `3.6.4`.
+
+Next steps:
+1. None required — deferred to backlog: Secure Input detection, tap-liveness heartbeat/supervisor, Bluetooth remote HID diagnostics, pynput upgrade evaluation (see `tasks/TASK-2026-07-12-hotkey-stability-fixes.md`).
+
+Decisions / notes:
+- Packaged free-unsigned (no paid Developer ID cert on this machine), consistent with v3.6.3.
+- Full history/root-cause detail: `tasks/TASK-2026-07-12-hotkey-stability-fixes.md`.
+
+---
+
 ### 2026-07-02 | v3.6.3 — fix asr_correction truncating long recordings
 
 Done this session:
