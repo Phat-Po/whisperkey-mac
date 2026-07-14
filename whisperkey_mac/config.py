@@ -198,7 +198,13 @@ def load_config() -> AppConfig:
 def save_config(cfg: AppConfig) -> None:
     _validate_config(cfg)
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(cfg.to_dict(), indent=2, ensure_ascii=False))
+    tmp_path = CONFIG_PATH.parent / f"config.json.tmp-{os.getpid()}"
+    try:
+        tmp_path.write_text(json.dumps(cfg.to_dict(), indent=2, ensure_ascii=False))
+        os.replace(tmp_path, CONFIG_PATH)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def config_exists() -> bool:

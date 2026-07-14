@@ -2,6 +2,49 @@
 
 ## Current
 
+### 2026-07-13 | v3.6.4 — hotkey tap stability, zero-fork diagnostics, instant settings apply
+
+Done this session:
+- Fixed the "hotkey stops working, especially after switching Bluetooth keyboards" bug via a five-part root-cause chain: `diagnostics.py`'s `diag()` forked a `ps` subprocess on every hotkey press inside the synchronous CGEventTap callback (perceptible lag); macOS's `kCGEventTapDisabledByTimeout` protection silently killed the tap when that callback ran too slow, and pynput 1.8.1 never re-enabled it (hotkey death until app restart); a disconnected Bluetooth key held mid-press left a permanent "ghost key" in `_held_keys` with no expiry.
+- `diagnostics.py`: `diag()` now reads from a background-refreshed cache (10s cycle) — zero subprocess forks on the hot path.
+- `keyboard_listener.py` / `service_controller.py`: tap reference exposed; auto `CGEventTapEnable` re-enable + logging on `TapDisabledByTimeout`; existing 3s AX-monitor loop now double-checks tap liveness as a watchdog; `_held_keys` changed to `dict[key, timestamp]` with a 45s TTL sweep for ghost keys.
+- `main.py` / `service_controller.py`: new `is_actively_working` flag (excludes the 2s post-dictation UI-quiet window) — settings save/apply no longer waits behind it.
+- `settings_window.py`: Usage tab lazy-loads (shows "Click Refresh to load" instead of scanning the multi-GB HF cache synchronously on window open).
+- `config.py`: `save_config` now writes via tmp file + `os.replace` for atomic saves.
+- 337 tests green. Operator confirmed fixed on-device.
+
+Current state:
+- App is WhisperKey `3.6.4`.
+
+Next steps:
+1. None required — deferred to backlog: Secure Input detection, tap-liveness heartbeat/supervisor, Bluetooth remote HID diagnostics, pynput upgrade evaluation (see `tasks/TASK-2026-07-12-hotkey-stability-fixes.md`).
+
+Decisions / notes:
+- Packaged free-unsigned (no paid Developer ID cert on this machine), consistent with v3.6.3.
+- Full history/root-cause detail: `tasks/TASK-2026-07-12-hotkey-stability-fixes.md`.
+
+---
+
+### 2026-07-02 | v3.6.3 — fix asr_correction truncating long recordings
+
+Done this session:
+- Diagnosed a live report: recordings over ~3-4 minutes got truncated mid-sentence, on both the local Whisper and Doubao ASR backends. Traced it to a shared downstream step — `online_correct.py`'s "Remove Fillers" (`asr_correction`) mode, which runs after either transcription engine when online correction is enabled, had `max_output_tokens=256` hardcoded (vs 512-1024 for the other modes). Long transcripts' corrected output silently hit that cap and got cut off.
+- Fix (`online_correct.py`): `max_output_tokens` for `asr_correction` now scales with input length (`min(4096, max(1024, len(text) * 2))`) instead of a flat 256.
+- Full suite 335 green. Built + packaged free-unsigned v3.6.3 (zip/dmg/checksums).
+
+Current state:
+- App is WhisperKey `3.6.3`.
+
+Next steps:
+1. Operator: record 3-4+ minutes with "Remove Fillers" (asr_correction) mode enabled, confirm the pasted text is no longer truncated.
+2. If truncation still reproduces, next hypothesis is the Doubao streaming `stop(timeout_s=5.0)` early-return in `service_controller.py` (H2 from the diagnosis, not yet investigated).
+
+Decisions / notes:
+- This only affects users with "AI 在线校正 / 去除口癖" (`online_correct_enabled`) turned on — off by default.
+- Ceiling of 4096 tokens bounds cost for very long recordings; not a proven-safe max, just a sane guard.
+
+---
+
 ### 2026-06-30 | v3.6.1 free-unsigned release published; install failure handoff prepared
 
 Done this session:
@@ -12,13 +55,11 @@ Done this session:
 - Wrote next-agent handoff: `tasks/HANDOFF-20260630-v3.6.1-free-unsigned-install-failure.md`.
 
 Current state:
-- Release is live but user install is blocked/unusable on this Mac. Most likely H1 is expected Gatekeeper quarantine behavior for an ad-hoc free build, but next agent must verify before changing code.
+- Superseded by later releases (v3.6.3, v3.6.4) which shipped as free-unsigned and were confirmed installable/working — the install-failure investigation for this specific v3.6.1 build was not separately closed out, but is moot given later releases work.
 - `/Applications/WhisperKey.app` exists; no active WhisperKey process or LaunchAgent was found during the evidence pass.
 
 Next steps:
-1. Next agent: start from `tasks/HANDOFF-20260630-v3.6.1-free-unsigned-install-failure.md`.
-2. Test H1 first: confirm right-click Open / Privacy & Security Open Anyway behavior; optionally test local-only `xattr -dr com.apple.quarantine /Applications/WhisperKey.app`.
-3. If Gatekeeper is not the only blocker, run direct executable + unified log diagnostics for a packaging/runtime crash.
+1. None — moot, later releases confirmed working.
 
 Decisions / notes:
 - No Developer ID is available; do not claim a no-warning normal install is possible for the free build.

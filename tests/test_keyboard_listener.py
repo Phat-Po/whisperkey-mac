@@ -1,5 +1,6 @@
 """Regression tests for hands-free key sequencing."""
 
+import time
 import unittest.mock
 
 from pynput import keyboard
@@ -413,7 +414,10 @@ def test_incomplete_handsfree_combo_logs_sanitized_diagnostic():
     )
     _unpause(listener)
 
-    with unittest.mock.patch("whisperkey_mac.keyboard_listener.diag") as mock_diag:
+    with (
+        unittest.mock.patch("whisperkey_mac.keyboard_listener.diag") as mock_diag,
+        unittest.mock.patch("whisperkey_mac.keyboard_listener._DEBUG_KEYS", True),
+    ):
         listener._on_press(keyboard.Key.cmd_r)
 
     incomplete_calls = [
@@ -519,7 +523,7 @@ def test_release_of_option_layer_char_clears_held_by_vk():
     listener._on_release(keyboard.Key.alt)
     listener._on_release(keyboard.KeyCode.from_char("=", vk=0x18))
 
-    assert listener._held_keys == set()
+    assert listener._held_keys == {}
     assert listener._mode_cycle_combo_active is False
 
 
@@ -610,7 +614,7 @@ def test_stop_pauses_without_destroying_underlying_listener_thread():
     fake_listener = _FakeListener()
     listener._listener = fake_listener
     listener._paused = False
-    listener._held_keys.add(keyboard.Key.alt_r)
+    listener._held_keys[keyboard.Key.alt_r] = time.monotonic()
     listener._handsfree_combo_active = True
     listener._handsfree_stop_pending = True
     listener._mode = "handsfree"
@@ -619,7 +623,7 @@ def test_stop_pauses_without_destroying_underlying_listener_thread():
 
     assert listener._paused is True
     assert listener._listener is fake_listener
-    assert listener._held_keys == set()
+    assert listener._held_keys == {}
     assert listener._handsfree_combo_active is False
     assert listener._handsfree_stop_pending is False
     assert listener._mode == "idle"
@@ -635,6 +639,24 @@ def _basic_listener() -> HotkeyListener:
         on_record_stop_transcribe=unittest.mock.MagicMock(),
         on_enter=unittest.mock.MagicMock(),
     )
+
+
+def test_stale_held_key_pruned_prevents_ghost_handsfree_trigger():
+    listener = _basic_listener()
+    _unpause(listener)
+
+    # Simulate a ghost key: cmd was pressed long ago but its key-up was lost
+    # (e.g. Bluetooth keyboard disconnect mid-press).
+    stale_time = time.monotonic() - (keyboard_listener_module.HELD_KEY_TTL_S + 5.0)
+    listener._held_keys[keyboard.Key.cmd] = stale_time
+
+    on_start = listener._on_record_start
+    listener._on_press(keyboard.KeyCode.from_char("\\"))
+
+    # The stale cmd entry must have been pruned before the combo check, so the
+    # handsfree combo (cmd + \\) must not fire even though \\ was just pressed.
+    on_start.assert_not_called()
+    assert keyboard.Key.cmd not in listener._held_keys
 
 
 class _TapCapturingListener:

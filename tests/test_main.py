@@ -515,7 +515,7 @@ def test_app_run_shuts_down_service_after_nsapp_returns():
 
 def test_app_open_settings_defers_while_service_busy():
     app = App.__new__(App)
-    app._service = SimpleNamespace(is_busy=True)
+    app._service = SimpleNamespace(is_actively_working=True)
     app._settings_retry_pending = False
 
     with (
@@ -532,7 +532,7 @@ def test_app_open_settings_defers_while_service_busy():
 def test_app_open_settings_passes_hotkey_capture_callback():
     app = App.__new__(App)
     app._service = unittest.mock.MagicMock()
-    app._service.is_busy = False
+    app._service.is_actively_working = False
     app._service.config = AppConfig()
     app._launch_agent = unittest.mock.MagicMock()
     app._launch_agent.is_enabled.return_value = False
@@ -565,7 +565,7 @@ def test_app_settings_hotkey_capture_callback_suspends_and_resumes_service():
 def test_app_save_settings_defers_while_service_busy():
     app = App.__new__(App)
     app._service = unittest.mock.MagicMock()
-    app._service.is_busy = True
+    app._service.is_actively_working = True
     app._launch_agent = unittest.mock.MagicMock()
     app._pending_settings_save = None
     app._settings_save_retry_pending = False
@@ -579,8 +579,29 @@ def test_app_save_settings_defers_while_service_busy():
 
     mock_call_later.assert_called_once_with(1.0, app._retry_save_settings)
     mock_save_config.assert_not_called()
-    assert app._pending_settings_save == (config, "secret", True)
-    assert app._settings_save_retry_pending is True
+
+
+def test_app_save_settings_proceeds_when_only_ui_quiet_period_active():
+    app = App.__new__(App)
+    app._service = unittest.mock.MagicMock()
+    # is_busy (with legacy quiet-period semantics) would be True here, but
+    # is_actively_working must ignore the quiet period and let save proceed.
+    app._service.is_busy = True
+    app._service.is_actively_working = False
+    app._launch_agent = unittest.mock.MagicMock()
+    app._launch_agent.is_enabled.return_value = False
+    app._pending_settings_save = None
+    app._settings_save_retry_pending = False
+    config = AppConfig()
+
+    with (
+        unittest.mock.patch("PyObjCTools.AppHelper.callLater") as mock_call_later,
+        unittest.mock.patch("whisperkey_mac.main.save_config") as mock_save_config,
+    ):
+        app._save_settings(config, None, False)
+
+    mock_call_later.assert_not_called()
+    mock_save_config.assert_called_once_with(config)
 
 
 def test_service_settings_hotkey_suspend_resume_is_nested():

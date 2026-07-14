@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -47,6 +48,14 @@ from whisperkey_mac.diagnostics import diag
 # Minimum hold duration before recording starts (avoids accidental taps)
 MIN_HOLD_S = 0.15
 HOLD_CONFLICT_GRACE_S = 0.35
+
+# Ghost key TTL: no normal hold exceeds this; guards against key-up events
+# lost to a Bluetooth keyboard disconnect/sleep mid-press.
+HELD_KEY_TTL_S = 45.0
+
+# Verbose per-keystroke diag output is opt-in; F1 made diag() cheap, but
+# print+flush on every key is still wasted I/O in normal operation.
+_DEBUG_KEYS = os.getenv("WHISPERKEY_DEBUG_KEYS") == "1"
 
 # Map config string names → pynput Key objects
 _KEY_MAP: dict[str, keyboard.Key] = {
@@ -310,7 +319,7 @@ class HotkeyListener:
         self._on_mode_cycle = on_mode_cycle or (lambda: None)
 
         self._lock = threading.Lock()
-        self._held_keys: set = set()
+        self._held_keys: dict = {}
         # "idle" | "hold_recording" | "handsfree"
         self._mode = "idle"
         self._hold_press_time: float = 0.0
@@ -964,6 +973,14 @@ class HotkeyListener:
             self._suppressed_mode_cycle_keyups.remove(name)
         return name
 
+    def _prune_stale_held_keys_locked(self) -> None:
+        """Drop held-key entries older than HELD_KEY_TTL_S. Caller must hold self._lock."""
+        now = time.monotonic()
+        stale = [k for k, pressed_at in self._held_keys.items() if now - pressed_at > HELD_KEY_TTL_S]
+        for k in stale:
+            del self._held_keys[k]
+            diag("hotkey_stale_key_pruned", key=_safe_key_label(k))
+
     def _on_press(self, key: keyboard.Key | keyboard.KeyCode | None) -> None:
         if self._paused or key is None:
             if key is None and not self._paused:
@@ -978,7 +995,8 @@ class HotkeyListener:
 
         should_start_handsfree = False
         with self._lock:
-            self._held_keys.add(key)
+            self._prune_stale_held_keys_locked()
+            self._held_keys[key] = time.monotonic()
             mode = self._mode
             held = set(self._held_keys)
             combo_active = self._handsfree_combo_active
@@ -989,17 +1007,18 @@ class HotkeyListener:
         # Check hands-free combo (all handsfree keys held simultaneously)
         combo_pressed = _combo_pressed(self._handsfree_names, held)
         mode_cycle_pressed = _combo_pressed(self._mode_cycle_names, held)
-        diag(
-            "hotkey_press",
-            key=_safe_key_label(key),
-            vk=getattr(key, "vk", None),
-            char=getattr(key, "char", None),
-            mode=mode,
-            hold_match=hold_match,
-            combo_complete=combo_pressed,
-            mode_cycle_complete=mode_cycle_pressed,
-            held_count=len(held),
-        )
+        if _DEBUG_KEYS:
+            diag(
+                "hotkey_press",
+                key=_safe_key_label(key),
+                vk=getattr(key, "vk", None),
+                char=getattr(key, "char", None),
+                mode=mode,
+                hold_match=hold_match,
+                combo_complete=combo_pressed,
+                mode_cycle_complete=mode_cycle_pressed,
+                held_count=len(held),
+            )
         if combo_pressed:
             if stop_pending:
                 diag("hotkey_combo_match", action="ignored_stop_pending", mode=mode)
@@ -1047,7 +1066,7 @@ class HotkeyListener:
                 self._on_mode_cycle()
             return
 
-        if self._handsfree_names:
+        if self._handsfree_names and _DEBUG_KEYS:
             diag(
                 "hotkey_combo_incomplete",
                 key=_safe_key_label(key),
@@ -1088,12 +1107,13 @@ class HotkeyListener:
         should_stop_handsfree = False
         should_handle_hold_release = False
         with self._lock:
-            self._held_keys.discard(key)
+            self._prune_stale_held_keys_locked()
+            self._held_keys.pop(key, None)
             release_vk = getattr(key, "vk", None)
             if release_vk is not None:
                 for held_key in list(self._held_keys):
                     if getattr(held_key, "vk", None) == release_vk:
-                        self._held_keys.discard(held_key)
+                        self._held_keys.pop(held_key, None)
             mode = self._mode
             held = set(self._held_keys)
             hold_match = _key_matches_name(key, self._hold_name)
@@ -1115,16 +1135,17 @@ class HotkeyListener:
                     self._handsfree_stop_pending = False
                     self._mode = "idle"
                     should_stop_handsfree = True
-        diag(
-            "hotkey_release",
-            key=_safe_key_label(key),
-            mode=mode,
-            hold_match=hold_match,
-            active_hold_release=should_handle_hold_release,
-            combo_complete=combo_pressed,
-            mode_cycle_complete=mode_cycle_pressed,
-            held_count=len(held),
-        )
+        if _DEBUG_KEYS:
+            diag(
+                "hotkey_release",
+                key=_safe_key_label(key),
+                mode=mode,
+                hold_match=hold_match,
+                active_hold_release=should_handle_hold_release,
+                combo_complete=combo_pressed,
+                mode_cycle_complete=mode_cycle_pressed,
+                held_count=len(held),
+            )
 
         if should_handle_hold_release:
             # Cancel pending timer (accidental tap — released before MIN_HOLD_S)

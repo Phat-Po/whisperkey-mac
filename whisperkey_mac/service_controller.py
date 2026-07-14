@@ -97,6 +97,12 @@ class ServiceController:
             ui_quiet_until = self._ui_quiet_until
         return processing_busy or self._recorder.is_recording or time.monotonic() < ui_quiet_until
 
+    @property
+    def is_actively_working(self) -> bool:
+        with self._activity_lock:
+            processing_busy = self._processing_busy
+        return processing_busy or self._recorder.is_recording
+
     def register_status_callback(self, callback: Callable[[], None]) -> None:
         self._status_callbacks.append(callback)
 
