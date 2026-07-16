@@ -2,6 +2,53 @@
 
 ## Current
 
+### 2026-07-16 | v3.6.5 — free-release signing switched to self-signed cert (TCC grants persist across updates)
+
+Done this session:
+- Root issue: free public releases were ad-hoc signed (`codesign --sign -`), whose designated requirement is `cdhash H"..."` — tied to the exact binary content, so it changes on every rebuild. macOS TCC treats each new release as a brand-new app and drops end users' Accessibility/Input Monitoring/Microphone grants on every update, forcing a manual re-grant after each upgrade. This affects anyone downloading a new version from GitHub Releases, not just local rebuilds.
+- Confirmed a self-signed certificate ("WhisperKey Dev", already present in this Mac's login keychain, valid until 2027-04-15, generated 2026-04-15) had never been trusted for code signing (`security dump-trust-settings` showed no entry) — that's why it wasn't showing as a usable identity. Trusted it (`security add-trusted-cert -p codeSign`) and granted its private key "Always Allow" access via Keychain Access (needed once — `codesign --deep` touches 1000+ nested binaries and without this ACL grant it re-prompts per binary).
+- Verified this is a real fix, not just cargo-culting the earlier failed attempt: signed a throwaway build with "WhisperKey Dev" and confirmed (a) `codesign -d -r-` now shows `identifier "com.phatpo.whisperkey" and certificate leaf = H"49b459..."` instead of a cdhash — i.e. identity is content-independent — and (b) the app launches and runs standalone outside Xcode/terminal (unlike the earlier `bb36389` attempt at this with an "Apple Development" identity, which got silently killed by AMFI before the process even became "WhisperKey" — confirmed via `log show` at the time, never merged, reverted same night as `2ce27cd`). Self-signed certs aren't subject to that Xcode-trust restriction.
+- `packaging/macos/build_app.sh`: `free-release` mode now tries the "WhisperKey Dev" identity first (falls back to ad-hoc + warning if not present on the build machine — e.g. a fresh machine or after the cert expires).
+- `packaging/macos/package_free_release.sh`: signature verification updated to accept either ad-hoc or `Authority=WhisperKey Dev`; artifact filenames and install note renamed `free-unsigned` → `free-selfsigned` to reflect what's actually happening (README.md/README.zh.md/RELEASE.md updated to match).
+- No app code changed — same binary logic as the v3.6.4 tag, only the signing step differs. Repackaged and re-verified (337 tests green, `codesign --verify --deep --strict` passes, standalone launch confirmed) before bumping to 3.6.5.
+
+Current state:
+- Not yet published. Built and pre-release-checked locally; operator wants a version bump (3.6.4 → 3.6.5) and the `free-selfsigned` rename before this goes out, both done.
+
+Next steps:
+1. Publish: commit, push, tag `v3.6.5`, create GitHub release with the new `free-selfsigned` artifacts and updated checksums — pending explicit go-ahead (release/deployment risk gate).
+2. Caveat to disclose in release notes: this only fixes TCC persistence for future updates onward. Anyone still on v3.6.4-or-earlier (ad-hoc signed) upgrading to v3.6.5 will need to re-grant permissions **once more** (identity type itself is changing), but every release after that should carry over.
+3. The unrelated main-thread deadlock noted below (2026-07-16 entry) is still unfixed — do not imply in release notes that this release addresses it.
+
+Decisions / notes:
+- The "WhisperKey Dev" certificate lives only on this Mac and is never distributed to end users — they don't need to trust or install anything extra; they still go through the normal Gatekeeper "Open Anyway" flow once per new version (unrelated to TCC).
+- If a paid Apple Developer ID Application certificate is ever added to this machine, the more standard fix is switching public releases to `packaging/macos/package_release.sh` (notarized) instead of maintaining this workaround.
+
+---
+
+### 2026-07-16 | v3.6.4 live — main-thread deadlock in a delayed-perform callback froze the whole app
+
+Done this session:
+- Operator reported the app "frozen" (not crashed, process still alive, hotkey/UI totally unresponsive). Diagnosed via `sample <pid> -f` (10s, 1ms interval) on the live hung process instead of guessing.
+- Root cause: the main thread (`DispatchQueue_1: com.apple.main-thread`) was blocked inside AppKit's `__NSFireDelayedPerform` → a PyObjC-bridged Python callback → `PyThread_acquire_lock` (`lock_PyThread_acquire_lock` → `acquire_timed` → `_pthread_cond_wait`). Something scheduled a delayed perform (likely via `performSelector:withDelay:` / NSTimer-backed `callLater`, the same mechanism flagged in the 2026-07-12 hotkey audit) whose callback tries to acquire a Python lock that was already held and never released by another thread — the main run loop (`NSApplication run` / `CFRunLoopRun`) can't proceed until that lock is granted, so every UI/hotkey event queues forever.
+- No crash report was generated for this specific freeze (last `.ips` in `~/Library/Logs/DiagnosticReports/` was the 2026-07-15 SIGTRAP, a different/already-known issue) — this deadlock is silent, only visible via `sample`/`spindump`, which is why it wasn't caught by crash reporting.
+- Killed (`kill -9`) both the main process and its watchdog/parent, relaunched `/Applications/WhisperKey.app`. No code fix applied yet — this is a live-incident diagnosis, not a resolution.
+- Sample kept at `/tmp/whisperkey-hang-sample.txt` (session-scratch, not committed).
+
+Current state:
+- App is WhisperKey `3.6.4`, freshly relaunched, working as of restart.
+- The specific lock/callback that deadlocked was NOT identified by name — only the call chain down to `PyThread_acquire_lock` was captured. Needs source-level investigation to find which `threading.Lock`/`RLock` is held across a delayed-perform boundary.
+
+Next steps:
+1. Grep `main.py` / `service_controller.py` for `performSelector.*withDelay` / `callLater`-style delayed dispatch and check what locks their callbacks acquire, cross-referencing anything also acquired by a background thread (ASR worker, audio stream teardown) that could stay held.
+2. If it recurs, capture a fresh `sample <pid> -f <path> -t 5` immediately (before killing) to confirm whether it's the same lock/call site — this incident's sample already gives the exact frame to match against.
+3. Consider a watchdog: if the main thread hasn't processed the run loop in N seconds, log a diag event before the user notices a full freeze (mirrors the tap-liveness watchdog idea already backlogged in `tasks/TASK-2026-07-12-hotkey-stability-fixes.md`).
+
+Decisions / notes:
+- Distinct from the 2026-07-15 SIGTRAP crash (`bug-sigtrap-tis-mainthread` memory) and the CoreAudio teardown deadlock (`bug-coreaudio-teardown-deadlock` memory) — this is a *new* deadlock class (Python lock contention inside a main-thread delayed-perform), not previously diagnosed or fixed.
+
+---
+
 ### 2026-07-13 | v3.6.4 — hotkey tap stability, zero-fork diagnostics, instant settings apply
 
 Done this session:

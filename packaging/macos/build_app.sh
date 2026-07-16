@@ -93,7 +93,7 @@ if [[ "${BUILD_MODE}" == "release" ]]; then
   echo "[whisperkey] Signing release with Developer ID identity: ${SIGN_IDENTITY}"
   codesign --force --deep --options runtime --timestamp --sign "${SIGN_IDENTITY}" --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
 elif [[ "${BUILD_MODE}" == "free-release" ]]; then
-  echo "[whisperkey] Signing free public build with ad-hoc identity."
+  echo "[whisperkey] Signing free public build."
   echo "[whisperkey] This build is not notarized and will require Gatekeeper manual approval after download."
 
   # Fix for v3.6.1 / v3.6.2 macOS 26 launch failure:
@@ -131,7 +131,32 @@ elif [[ "${BUILD_MODE}" == "free-release" ]]; then
   fi
 
   # NOTE: free-release does NOT pass --options runtime. See comment above.
-  codesign --force --deep --sign - --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
+  #
+  # Prefer a stable local certificate ("WhisperKey Dev", a self-signed
+  # code-signing cert generated on this Mac) over ad-hoc. Ad-hoc's
+  # designated requirement is `cdhash H"..."`, which changes every build —
+  # macOS TCC treats each rebuild as a brand-new app and drops
+  # Accessibility/Input Monitoring grants on every update. Signing with a
+  # certificate (even a self-signed, untrusted-for-Gatekeeper one) produces
+  # a designated requirement of `identifier ... and certificate leaf = H"..."`
+  # instead — stable across rebuilds as long as the same cert file signs
+  # every release, so TCC grants persist for end users across app updates.
+  # Verified empirically 2026-07-16: cert-signed build launches standalone
+  # fine (unlike signing with the real "Apple Development" identity, which
+  # gets killed by AMFI outside Xcode — see bb36389/2ce27cd history). Users
+  # never need this certificate themselves; it only has to sign consistently
+  # on this machine. Falls back to ad-hoc with a warning if the cert isn't
+  # present (e.g. a fresh machine, or after the cert expires 2027-04-15).
+  FREE_SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/WhisperKey Dev/{print $2; exit}')"
+  if [[ -n "${FREE_SIGN_IDENTITY}" ]]; then
+    echo "[whisperkey] Signing with stable local identity: ${FREE_SIGN_IDENTITY}"
+    echo "[whisperkey] (stable identity keeps TCC permission grants across updates for end users)"
+    codesign --force --deep --timestamp=none --sign "${FREE_SIGN_IDENTITY}" --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
+  else
+    echo "[whisperkey] WARNING: 'WhisperKey Dev' signing identity not found — falling back to ad-hoc." >&2
+    echo "[whisperkey] WARNING: ad-hoc CDHash changes every build; end users will need to re-grant TCC permissions on every update." >&2
+    codesign --force --deep --sign - --entitlements "${ENTITLEMENTS}" "${APP_PATH}"
+  fi
 else
   if [[ -z "${SIGN_IDENTITY}" ]]; then
     SIGN_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk -F'"' '/Apple Development|Developer ID Application/{print $2; exit}')"

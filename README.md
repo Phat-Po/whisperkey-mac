@@ -94,7 +94,7 @@ WhisperKey keeps transcription on your Mac using [faster-whisper](https://github
 3. First launch: right-click `WhisperKey.app` → **Open**.
 4. WhisperKey shows a **setup window** listing the permissions it needs — **Accessibility**, **Input Monitoring**, and **Microphone** — with one-click buttons that jump to the right System Settings pane. Grant each one, then click **Restart WhisperKey** in the setup window to finish.
 
-Free unsigned builds are labeled `free-unsigned`. They are not Apple-notarized, so macOS may require **System Settings → Privacy & Security → Open Anyway** on first launch.
+Free builds are labeled `free-selfsigned` and signed with a local self-signed certificate. They are not Apple-notarized, so macOS may require **System Settings → Privacy & Security → Open Anyway** on first launch. Because every release is signed with the same certificate, permission grants (Accessibility/Input Monitoring/Microphone) persist across updates — you shouldn't need to re-grant them on every new version.
 
 If you launch the app from `Downloads` instead, WhisperKey offers to move itself into `Applications` automatically.
 

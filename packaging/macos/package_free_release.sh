@@ -10,8 +10,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)
       echo "Usage: $0"
-      echo "  Creates an ad-hoc signed, not-notarized free public release."
-      echo "  Artifacts are labeled free-unsigned and require manual Gatekeeper approval."
+      echo "  Creates a self-signed (or ad-hoc fallback), not-notarized free public release."
+      echo "  Artifacts are labeled free-selfsigned and require manual Gatekeeper approval."
       exit 0
       ;;
     *)
@@ -40,17 +40,19 @@ PY
 )"
 
 mkdir -p "${RELEASE_DIR}"
-ZIP_PATH="${RELEASE_DIR}/WhisperKey-macOS-arm64-v${VERSION}-free-unsigned.zip"
-DMG_PATH="${RELEASE_DIR}/WhisperKey-macOS-arm64-v${VERSION}-free-unsigned.dmg"
-CHECKSUM_PATH="${RELEASE_DIR}/WhisperKey-macOS-arm64-v${VERSION}-free-unsigned-SHA256SUMS.txt"
+ZIP_PATH="${RELEASE_DIR}/WhisperKey-macOS-arm64-v${VERSION}-free-selfsigned.zip"
+DMG_PATH="${RELEASE_DIR}/WhisperKey-macOS-arm64-v${VERSION}-free-selfsigned.dmg"
+CHECKSUM_PATH="${RELEASE_DIR}/WhisperKey-macOS-arm64-v${VERSION}-free-selfsigned-SHA256SUMS.txt"
 rm -f "${ZIP_PATH}" "${DMG_PATH}" "${CHECKSUM_PATH}"
 
 echo "[whisperkey] Verifying free build signature..."
 codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 CODESIGN_INFO="$(codesign -dvv "${APP_PATH}" 2>&1 || true)"
 printf '%s\n' "${CODESIGN_INFO}"
-if ! printf '%s\n' "${CODESIGN_INFO}" | grep -q "Signature=adhoc"; then
-  echo "[whisperkey] Free release verification failed: expected ad-hoc signature." >&2
+if printf '%s\n' "${CODESIGN_INFO}" | grep -q "Signature=adhoc"; then
+  echo "[whisperkey] NOTE: signed ad-hoc (no stable local identity found) — end users will need to re-grant TCC permissions on every update."
+elif ! printf '%s\n' "${CODESIGN_INFO}" | grep -q "Authority=WhisperKey Dev"; then
+  echo "[whisperkey] Free release verification failed: expected ad-hoc or 'WhisperKey Dev' signature, got something else." >&2
   exit 1
 fi
 
@@ -65,8 +67,11 @@ ln -s /Applications "${STAGING_DIR}/Applications"
 cat > "${STAGING_DIR}/安装说明 Install.txt" <<'NOTE'
 WhisperKey 免费版安装 / Free Build Install
 
-这是免费未公证版本：没有 Apple Developer ID 公证。
-This is a free unsigned build without Apple Developer ID notarization.
+这是免费自签名版本：没有 Apple Developer ID 公证，用的是本地自签名证书签名
+（不是 Apple 颁发的证书），首次启动仍需手动放行 Gatekeeper。
+This is a free, self-signed build without Apple Developer ID notarization.
+It is signed with a local self-signed certificate (not an Apple-issued one),
+so you'll still need to manually approve it through Gatekeeper on first launch.
 
 1. 把 WhisperKey.app 拖到 Applications 文件夹。
    Drag WhisperKey.app into the Applications folder.
